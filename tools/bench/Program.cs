@@ -1,0 +1,69 @@
+// 司令LLMと担当LLMの応答時間と出力を測る。ゲーム画面は使わない。
+//   dotnet run -- [発話 ...]    (省略時は用意した発話を順に流す)
+// 設定は game/.env か環境変数(ANTHROPIC_API_KEY, COMMANDER_MODEL, OFFICER_MODEL, COMMANDER_EFFORT)。
+using System.Diagnostics;
+using System.Numerics;
+using System.Text.Json;
+using LlmCommander.Command;
+using LlmCommander.Llm;
+using LlmCommander.Sim;
+using LlmCommander.View;
+
+var config = Config.Load(Path.Combine(AppContext.BaseDirectory, "../../../../../game/.env"));
+var key = config.Get("ANTHROPIC_API_KEY");
+if (key == null) { Console.Error.WriteLine("ANTHROPIC_API_KEY がありません"); return 1; }
+var llm = new AnthropicLlm(key, config.Get("ANTHROPIC_API_URL"));
+var settings = new LlmSettings
+{
+    CommanderModel = config.Get("COMMANDER_MODEL", "claude-opus-5-5"),
+    CommanderEffort = config.Get("COMMANDER_EFFORT", "low"),
+    OfficerModel = config.Get("OFFICER_MODEL", "claude-haiku-5-5"),
+};
+
+// 交戦が始まった直後の場面を作る
+var w = MapLayout.CreateValley();
+DemoScenario.Setup(w);
+var front = w.Teams[0].FindOp("戦線A")!;
+for (int i = 0; i < 20 * 90 && !w.Members(front).Any(u => w.Time - u.LastFoughtAt < 1); i++) w.Step();
+for (int i = 0; i < 20 * 3; i++) w.Step();
+
+string[] utterances = args.Length > 0 ? args : new[]
+{
+    "弓は引き撃ち、他は撤退",
+    "騎兵は右から回り込んで敵の弓を狙え",
+    "木のうち2人を食料に回して",
+    "兵舎をもう一つ、基地の近くに",
+    "OK",
+    "新しく作った槍は戦線Aに送って、槍は常に作り続けて",
+    "槍の半分を北の金鉱の守りに回せ",
+};
+
+var applier = new Applier(w, 0);
+var times = new List<double>();
+foreach (var u in utterances)
+{
+    var user = Context.Commander(w, 0, new UtteranceContext(), u);
+    var req = new LlmRequest(settings.CommanderModel, settings.CommanderEffort, Tools.CommanderSystem, user, Tools.CommanderTools);
+    var sw = Stopwatch.StartNew();
+    var reply = await llm.Call(req);
+    times.Add(sw.Elapsed.TotalSeconds);
+    Console.WriteLine($"\n=== 「{u}」 {sw.Elapsed.TotalSeconds:0.00}秒 ({settings.CommanderModel}, effort {settings.CommanderEffort})");
+    if (reply.Error != null) Console.WriteLine("エラー: " + reply.Error);
+    foreach (var c in reply.Calls)
+    {
+        Console.WriteLine($"  {c.Name} {JsonSerializer.Serialize(c.Input, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })}");
+        Console.WriteLine($"    → {applier.Apply(c, u, Array.Empty<int>())}");
+    }
+    for (int i = 0; i < 20 * 2; i++) w.Step();
+}
+
+// 担当LLMを1回
+var officerReq = new LlmRequest(settings.OfficerModel, settings.OfficerEffort, Tools.OfficerSystem,
+    Context.Officer(w, front, new[] { "槍が3体やられた" }), Tools.OfficerTools, 1500);
+var osw = Stopwatch.StartNew();
+var oreply = await llm.Call(officerReq);
+Console.WriteLine($"\n=== 担当LLM({settings.OfficerModel}) {osw.Elapsed.TotalSeconds:0.00}秒 {oreply.Error}");
+foreach (var c in oreply.Calls) Console.WriteLine($"  {c.Name} {c.Input}");
+
+Console.WriteLine($"\n司令LLM: 平均 {times.Average():0.00}秒 / 最大 {times.Max():0.00}秒 / 最小 {times.Min():0.00}秒");
+return 0;

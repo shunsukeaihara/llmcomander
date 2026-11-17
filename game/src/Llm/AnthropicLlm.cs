@@ -21,9 +21,12 @@ public sealed class AnthropicLlm : ILlm
     private readonly AnthropicClient _client;
     private readonly Dictionary<IReadOnlyList<ToolSpec>, List<BetaToolUnion>> _toolCache = new();
 
-    public AnthropicLlm(string apiKey)
+    /// <param name="baseUrl">API の URL を変えるとき(省略時は SDK の既定)。</param>
+    public AnthropicLlm(string apiKey, string? baseUrl = null)
     {
-        _client = new AnthropicClient { ApiKey = apiKey };
+        _client = baseUrl != null
+            ? new AnthropicClient { ApiKey = apiKey, BaseUrl = baseUrl }
+            : new AnthropicClient { ApiKey = apiKey };
     }
 
     private List<BetaToolUnion> ToolsFor(IReadOnlyList<ToolSpec> specs)
