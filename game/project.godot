@@ -1,0 +1,25 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="LLM Commander"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.7", "C#")
+
+[audio]
+
+driver/enable_input=true
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+
+[dotnet]
+
+project/assembly_name="LlmCommander"
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0
