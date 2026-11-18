@@ -72,6 +72,7 @@ public partial class Main : Node2D
         _cam.MakeCurrent();
 
         if (OS.GetEnvironment("LLMC_DEMO") == "1") RunDemo();
+        if (OS.GetEnvironment("LLMC_PANEL_CLOSED") == "1") CallDeferred(nameof(ClosePanel));
         _hud.TextSubmitted += t => Submit(t, null);
         _hud.PlanDecision += (id, ok) =>
         {
@@ -126,6 +127,11 @@ public partial class Main : Node2D
     }
 
     private int _frames;
+
+    private void ClosePanel()
+    {
+        if (_hud.PanelOpen) _hud.TogglePanel();
+    }
 
     /// <summary>画面確認用: 場面を作って交戦が始まるまで早送りする。</summary>
     private void RunDemo()
@@ -210,6 +216,7 @@ public partial class Main : Node2D
                     case Key.Key2: _tool = Tool.Line; break;
                     case Key.Escape: _tool = Tool.Select; _selected.Clear(); break;
                     case Key.Tab: _overlay.ShowIntent = !_overlay.ShowIntent; break;
+                    case Key.C: _hud.TogglePanel(); break;
                     case Key.P: _paused = !_paused; break;
                 }
                 break;

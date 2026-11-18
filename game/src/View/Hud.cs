@@ -23,6 +23,20 @@ public partial class Hud : CanvasLayer
     private Label _voiceResult = null!;
     private LineEdit _input = null!;
     private Label _banner = null!;
+    private PanelContainer _right = null!;
+    private PanelContainer _voice = null!;
+    private Button _toggle = null!;
+
+    /// <summary>右パネルが開いているか。</summary>
+    public bool PanelOpen => _right.Visible;
+
+    /// <summary>右パネル(作戦カードと指示履歴)の開閉。閉じると音声バーを画面幅いっぱいに広げる。</summary>
+    public void TogglePanel()
+    {
+        _right.Visible = !_right.Visible;
+        _voice.OffsetRight = _right.Visible ? -PanelWidth - 16 : -16;
+        _toggle.Text = _right.Visible ? "作戦パネルを閉じる (C)" : "作戦パネルを開く (C)";
+    }
     private Font _font = null!;
 
     public bool Typing => _input.HasFocus();
@@ -52,11 +66,14 @@ public partial class Hud : CanvasLayer
         topRow.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
         _llmState = new Label { Modulate = Palette.Muted };
         topRow.AddChild(_llmState);
+        _toggle = new Button { Text = "作戦パネルを閉じる (C)", Flat = true, FocusMode = Control.FocusModeEnum.None };
+        _toggle.Pressed += TogglePanel;
+        topRow.AddChild(_toggle);
         _clock = new Label();
         topRow.AddChild(_clock);
 
         // 右パネル
-        var right = Panel(new Color(0.05f, 0.07f, 0.09f, 0.97f));
+        var right = _right = Panel(new Color(0.05f, 0.07f, 0.09f, 0.97f));
         right.AnchorLeft = 1;
         right.AnchorRight = 1;
         right.AnchorBottom = 1;
@@ -78,7 +95,7 @@ public partial class Hud : CanvasLayer
         rightBox.AddChild(_history);
 
         // 音声バー
-        var voice = Panel(new Color(0.07f, 0.1f, 0.13f, 0.82f));
+        var voice = _voice = Panel(new Color(0.07f, 0.1f, 0.13f, 0.82f));
         voice.AnchorTop = 1;
         voice.AnchorBottom = 1;
         voice.AnchorRight = 1;
@@ -220,7 +237,7 @@ public partial class Hud : CanvasLayer
 
         var last = ts.History.LastOrDefault();
         _voiceState.Text = listening ? "● 聞き取り中… (Space を離すと送信。話しながらクリックした地点は「指示点」になる)" :
-            "Space: 話す ・ Enter: 文字入力 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ 選択すると作戦の詳細を地図に表示 ・ Tab: 表示切替" + micNote;
+            "Space: 話す ・ Enter: 文字入力 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ 選択すると作戦の詳細を地図に表示 ・ Tab: 表示切替 ・ C: 作戦パネル" + micNote;
         _voiceState.Modulate = listening ? Palette.Warn : Palette.Muted;
         _voiceLast.Text = last == null ? "" : $"「{last.Utterance}」 " + (last.Pending ? "→ 解釈中…" : "→ " + last.Result);
 
