@@ -12,6 +12,8 @@ public partial class OverlayView : Node2D
     public World? World;
     public Font? Font;
     public bool ShowIntent = true;
+    /// <summary>選択中のユニット。その作戦だけ地図上に詳しい内容を出す。</summary>
+    public HashSet<int> Selected = new();
     public Rect2? SelectBox;
     public List<SVec> SpeakingClicks = new();
     public (SVec a, SVec b)? DraftLine;
@@ -101,8 +103,13 @@ public partial class OverlayView : Node2D
                     if (role.Trigger is { Then.Anchor: { } ta })
                         Arrow(sc, Iso.ToScreen(ta.Center), Palette.Muted, 2f, true);
                 }
-                // 作戦ごとに1枚のラベル。部隊の上に、役割を1行ずつ
+                // 地図には作戦名と状態だけの小さな札。詳しい内容は右パネルと、選択したときだけ
                 var oc = new SVec(all.Average(u => u.Pos.X), all.Average(u => u.Pos.Y));
+                if (!all.Any(u => Selected.Contains(u.Id)))
+                {
+                    Label(Iso.ToScreen(oc) + new Vector2(0, -46), $"{op.Name} {w.OpTag(op)}", Palette.Overlay, bg, 10);
+                    continue;
+                }
                 var lines = new List<(string text, Color color, bool strike)> { ($"{op.Name}  {w.OpTag(op)}", Palette.Overlay, false) };
                 foreach (var role in op.Roles)
                 {
@@ -116,15 +123,15 @@ public partial class OverlayView : Node2D
             }
 
             foreach (var p in ts.Plans.Where(p => p.Status == PlanStatus.Proposed))
-                Label(Iso.ToScreen(p.Center) + new Vector2(0, 30), $"仮置き #{p.Id} {Defs.Ja(p.Kind)}・「OK」で確定", Palette.Overlay, bg, 11);
+                Label(Iso.ToScreen(p.Center) + new Vector2(0, 30), $"#{p.Id} 確認待ち", Palette.Overlay, bg, 10);
         }
 
-        foreach (var a in ts.Alerts.Where(a => w.Time - a.Time < 8))
+        foreach (var a in ts.Alerts.Where(a => w.Time - a.Time < 5))
         {
             var s = Iso.ToScreen(a.Pos);
             float t = (float)(w.Time - a.Time);
             DrawArc(s, 18 + (t * 20 % 30), 0, Mathf.Tau, 28, new Color(Palette.Alert, 1 - (t * 20 % 30) / 30), 2);
-            Label(s + new Vector2(0, -40), a.Text, Palette.Overlay, new Color(0.23f, 0.09f, 0.09f, 0.92f), 12);
+            Label(s + new Vector2(0, -36), a.Text, Palette.Overlay, new Color(0.23f, 0.09f, 0.09f, 0.85f), 10);
         }
 
         for (int i = 0; i < SpeakingClicks.Count; i++)

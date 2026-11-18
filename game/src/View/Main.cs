@@ -61,7 +61,7 @@ public partial class Main : Node2D
         AddChild(_view);
         _hud = new Hud();
         AddChild(_hud);
-        _overlay = new OverlayView { World = _world, Font = _hud.Font };
+        _overlay = new OverlayView { World = _world, Font = _hud.Font, Selected = _selected };
         AddChild(_overlay);
         _voice = new Voice();
         AddChild(_voice);
@@ -140,6 +140,8 @@ public partial class Main : Node2D
         for (int i = 0; i < 20 * 3; i++) _world.Step();
         DemoScenario.Retreat(_world);
         for (int i = 0; i < 20 * 3; i++) _world.Step();
+        if (OS.GetEnvironment("LLMC_DEMO_SELECT") == "1")
+            foreach (var u in _world.Members(op)) _selected.Add(u.Id);
         _cam.Position = Iso.ToScreen(new SVec(30, 44)) + new Vector2(Hud.PanelWidth / 2f / _cam.Zoom.X, 0);
     }
 

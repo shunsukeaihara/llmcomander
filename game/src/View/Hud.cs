@@ -78,21 +78,23 @@ public partial class Hud : CanvasLayer
         rightBox.AddChild(_history);
 
         // 音声バー
-        var voice = Panel(new Color(0.07f, 0.1f, 0.13f, 0.93f));
+        var voice = Panel(new Color(0.07f, 0.1f, 0.13f, 0.82f));
         voice.AnchorTop = 1;
         voice.AnchorBottom = 1;
         voice.AnchorRight = 1;
         voice.OffsetLeft = 16;
         voice.OffsetRight = -PanelWidth - 16;
-        voice.OffsetTop = -112;
-        voice.OffsetBottom = -16;
+        voice.OffsetTop = -66;
+        voice.OffsetBottom = -12;
         root.AddChild(voice);
         var vbox = new VBoxContainer();
         voice.AddChild(vbox);
+        // 2行だけ: 操作の案内(小さく)と、直前の発話と結果(1行に収める)
         _voiceState = new Label { Modulate = Palette.Muted };
-        _voiceLast = new Label();
-        _voiceLast.AddThemeFontSizeOverride("font_size", 16);
-        _voiceResult = new Label { Modulate = Palette.Muted, AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        _voiceState.AddThemeFontSizeOverride("font_size", 11);
+        _voiceLast = new Label { TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis, ClipText = true };
+        _voiceLast.AddThemeFontSizeOverride("font_size", 14);
+        _voiceResult = new Label { Visible = false };
         _input = new LineEdit { PlaceholderText = "Enter で文字入力(音声の代わり)。Esc でキャンセル", Visible = false };
         _input.TextSubmitted += t =>
         {
@@ -218,10 +220,9 @@ public partial class Hud : CanvasLayer
 
         var last = ts.History.LastOrDefault();
         _voiceState.Text = listening ? "● 聞き取り中… (Space を離すと送信。話しながらクリックした地点は「指示点」になる)" :
-            "Space 長押しで話す ・ Enter で文字入力 ・ 1: 地点の目印 ・ 2: 線の目印(ドラッグ) ・ 右クリック: 目印を消す ・ Tab: 意図表示" + micNote;
+            "Space: 話す ・ Enter: 文字入力 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ 選択すると作戦の詳細を地図に表示 ・ Tab: 表示切替" + micNote;
         _voiceState.Modulate = listening ? Palette.Warn : Palette.Muted;
-        _voiceLast.Text = last != null ? $"「{last.Utterance}」" : "";
-        _voiceResult.Text = last == null ? "" : last.Pending ? "解釈中…" : "→ " + last.Result;
+        _voiceLast.Text = last == null ? "" : $"「{last.Utterance}」 " + (last.Pending ? "→ 解釈中…" : "→ " + last.Result);
 
         if (w.Winner is { } win)
         {
