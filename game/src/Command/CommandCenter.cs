@@ -40,6 +40,8 @@ public sealed class CommandCenter
     /// <summary>実行中の LLM 呼び出しの数(表示用)。</summary>
     public int InFlight;
     public string LastError = "";
+    /// <summary>プレイログ(なければ記録しない)。</summary>
+    public PlayLog? Log;
 
     public CommandCenter(World w, int team, ILlm llm, ISpeech? speech, LlmSettings settings)
     {
@@ -84,6 +86,7 @@ public sealed class CommandCenter
                 double stt = sw.Elapsed.TotalSeconds;
                 _main.Enqueue(() =>
                 {
+                    Log?.Write("stt", new { text, seconds = Math.Round(stt, 3), wav_bytes = wav.Length });
                     if (text == "")
                     {
                         entry.Pending = false;
@@ -104,6 +107,7 @@ public sealed class CommandCenter
                     entry.Failed = true;
                     entry.Result = "音声認識に失敗: " + ex.Message;
                     LastError = ex.Message;
+                    Log?.Write("stt", new { error = ex.Message, seconds = Math.Round(sw.Elapsed.TotalSeconds, 3) });
                 });
             }
             finally
@@ -130,6 +134,8 @@ public sealed class CommandCenter
         var selected = ctx.Selected.ToList();
         string user = Context.Commander(_w, _team, ctx, utterance);
         var req = new LlmRequest(Settings.CommanderModel, Settings.CommanderEffort, Tools.CommanderSystem, user, Tools.CommanderTools);
+        var submitted = Stopwatch.StartNew();
+        double submittedAt = _w.Time;
 
         Interlocked.Increment(ref InFlight);
         Task.Run(async () =>
@@ -143,16 +149,37 @@ public sealed class CommandCenter
             {
                 reply = new LlmReply(Array.Empty<ToolCall>(), "", 0, ex.Message);
             }
-            finally
+            // 実行中の数は、結果をゲームに取り込んだ時点で減らす
+            _main.Enqueue(() =>
             {
                 Interlocked.Decrement(ref InFlight);
-            }
-            _main.Enqueue(() => ApplyCommander(entry, reply, selected));
+                var results = ApplyCommander(entry, reply, selected);
+                Log?.Write("command", new
+                {
+                    utterance,
+                    source = sttSeconds > 0 ? "voice" : "text",
+                    submitted_t = Math.Round(submittedAt, 2),
+                    stt_seconds = Math.Round(sttSeconds, 3),
+                    llm_seconds = Math.Round(reply.Seconds, 3),
+                    // 送信してからゲームに反映されるまで(LLM の時間に、結果を取り込むまでの待ちを足したもの)
+                    applied_seconds = Math.Round(submitted.Elapsed.TotalSeconds, 3),
+                    model = req.Model,
+                    effort = req.Effort,
+                    selected = selected.Count,
+                    clicks = ctx.Clicks.Count,
+                    prompt = user,
+                    calls = reply.Calls.Select((c, i) => new { name = c.Name, input = c.Input, result = i < results.Count ? results[i] : "" }),
+                    text = reply.Text,
+                    error = reply.Error,
+                    result = entry.Result,
+                });
+            });
         });
         return entry;
     }
 
-    private void ApplyCommander(HistoryEntry entry, LlmReply reply, IReadOnlyList<int> selected)
+    /// <returns>ツール呼び出しごとの適用結果(呼び出しと同じ順)。</returns>
+    private List<string> ApplyCommander(HistoryEntry entry, LlmReply reply, IReadOnlyList<int> selected)
     {
         entry.Pending = false;
         entry.LlmSeconds = reply.Seconds;
@@ -161,12 +188,14 @@ public sealed class CommandCenter
             entry.Failed = true;
             entry.Result = "LLMの呼び出しに失敗: " + reply.Error;
             LastError = reply.Error;
-            return;
+            return new List<string>();
         }
-        var results = reply.Calls.Select(c => _applier.Apply(c, entry.Utterance, selected)).Where(r => r != "").ToList();
-        if (results.Count == 0) results.Add(reply.Text != "" ? "返答: " + reply.Text : "命令なし");
-        entry.Result = string.Join(" / ", results);
+        var results = reply.Calls.Select(c => _applier.Apply(c, entry.Utterance, selected)).ToList();
+        var shown = results.Where(r => r != "").ToList();
+        if (shown.Count == 0) shown.Add(reply.Text != "" ? "返答: " + reply.Text : "命令なし");
+        entry.Result = string.Join(" / ", shown);
         T.Version++;
+        return results;
     }
 
     // ------------------------------------------------------------ 担当LLM
@@ -217,13 +246,20 @@ public sealed class CommandCenter
             {
                 reply = new LlmReply(Array.Empty<ToolCall>(), "", 0, ex.Message);
             }
-            finally
-            {
-                Interlocked.Decrement(ref InFlight);
-            }
+            // 実行中の数は、結果をゲームに取り込んだ時点で減らす
             _main.Enqueue(() =>
             {
+                Interlocked.Decrement(ref InFlight);
                 op.OfficerBusy = false;
+                Log?.Write("officer", new
+                {
+                    op = op.Name,
+                    seconds = Math.Round(reply.Seconds, 3),
+                    model = req.Model,
+                    prompt = user,
+                    calls = reply.Calls.Select(c => new { name = c.Name, input = c.Input }),
+                    error = reply.Error,
+                });
                 if (reply.Error != null)
                 {
                     LastError = reply.Error;

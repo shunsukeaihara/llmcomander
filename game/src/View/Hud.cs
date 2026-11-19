@@ -237,7 +237,7 @@ public partial class Hud : CanvasLayer
 
         var last = ts.History.LastOrDefault();
         _voiceState.Text = listening ? "● 聞き取り中… (Space を離すと送信。話しながらクリックした地点は「指示点」になる)" :
-            "Space: 話す ・ Enter: 文字入力 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ 選択すると作戦の詳細を地図に表示 ・ Tab: 表示切替 ・ C: 作戦パネル" + micNote;
+            "Space: 話す ・ Enter: 文字入力 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ 選択すると作戦の詳細を地図に表示 ・ Tab: 表示切替 ・ C: 作戦パネル ・ F9: ログ" + micNote;
         _voiceState.Modulate = listening ? Palette.Warn : Palette.Muted;
         _voiceLast.Text = last == null ? "" : $"「{last.Utterance}」 " + (last.Pending ? "→ 解釈中…" : "→ " + last.Result);
 

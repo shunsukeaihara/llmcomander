@@ -54,6 +54,13 @@ public partial class Main : Node2D
         var openaiKey = config.Get("OPENAI_API_KEY");
         ISpeech? speech = openaiKey != null ? new OpenAiSpeech(openaiKey, config.Get("STT_MODEL", "gpt-4o-transcribe")) : null;
         if (anthropicKey != null) _cc = new CommandCenter(_world, 0, new AnthropicLlm(anthropicKey), speech, settings);
+
+        // プレイログ: ユーザーデータの logs/ に1試合1ファイル(LLMC_LOG_DIR で変更可)
+        var logDir = OS.GetEnvironment("LLMC_LOG_DIR");
+        if (logDir == "") logDir = OS.GetUserDataDir() + "/logs";
+        _log = PlayLog.Open(logDir, _world);
+        _log?.Start(settings);
+        if (_cc != null) _cc.Log = _log;
         if (speech == null) _micNote = "  (音声認識なし: OPENAI_API_KEY 未設定)";
 
         AddChild(new GroundView { World = _world });
@@ -79,6 +86,7 @@ public partial class Main : Node2D
             var plan = _world.Teams[0].Plans.FirstOrDefault(p => p.Id == id && p.Status == PlanStatus.Proposed);
             if (plan == null) return;
             plan.Status = ok ? PlanStatus.Confirmed : PlanStatus.Cancelled;
+            _log?.Write("ui", new { action = ok ? "confirm_build" : "cancel_build", plan = plan.Id, building = Defs.Key(plan.Kind) });
             _world.Teams[0].History.Add(new HistoryEntry
             {
                 Time = _world.Time, Utterance = ok ? "(OKボタン)" : "(取消ボタン)", Pending = false,
@@ -102,6 +110,7 @@ public partial class Main : Node2D
             if (steps >= 5) _acc = 0;
         }
         _cc?.Update();
+        UpdateLog();
 
         // カメラのスクロール
         var move = Vector2.Zero;
@@ -124,6 +133,37 @@ public partial class Main : Node2D
             _selected.RemoveWhere(id => !_world.Units.ContainsKey(id));
             _hud.Refresh(_world, _cc, _listening, _micNote);
         }
+    }
+
+    private PlayLog? _log;
+    private double _nextPoll, _nextSnapshot;
+    private bool _logEnded;
+
+    private void UpdateLog()
+    {
+        if (_log == null || _logEnded) return;
+        if (_world.Time >= _nextPoll)
+        {
+            _nextPoll = _world.Time + 1;
+            _log.Poll();
+        }
+        if (_world.Time >= _nextSnapshot)
+        {
+            _nextSnapshot = _world.Time + 30;
+            _log.Snapshot();
+        }
+        if (_world.Winner != null)
+        {
+            _log.Poll();
+            _log.End();
+            _logEnded = true;
+        }
+    }
+
+    public override void _ExitTree()
+    {
+        if (_log != null && !_logEnded) _log.End();
+        _log?.Dispose();
     }
 
     private int _frames;
@@ -217,6 +257,10 @@ public partial class Main : Node2D
                     case Key.Escape: _tool = Tool.Select; _selected.Clear(); break;
                     case Key.Tab: _overlay.ShowIntent = !_overlay.ShowIntent; break;
                     case Key.C: _hud.TogglePanel(); break;
+                    case Key.F9:
+                        // ログのフォルダを開く
+                        if (_log != null) OS.ShellOpen(System.IO.Path.GetDirectoryName(_log.Path)!);
+                        break;
                     case Key.P: _paused = !_paused; break;
                 }
                 break;
@@ -289,13 +333,18 @@ public partial class Main : Node2D
         do name = $"{prefix}{(char)('A' + _markerSeq++ % 26)}";
         while (ts.Markers.Any(m => m.Name == name));
         ts.Markers.Add(new Marker { Name = name, Points = points });
+        _log?.Write("ui", new { action = "add_marker", name, region = points.Select(p => _world.Map.RegionName(p)) });
     }
 
     private void RemoveMarkerNear(SVec tile)
     {
         var ts = _world.Teams[0];
         var m = ts.Markers.OrderBy(m => m.ToPlace().Distance(tile)).FirstOrDefault();
-        if (m != null && m.ToPlace().Distance(tile) < 2) ts.Markers.Remove(m);
+        if (m != null && m.ToPlace().Distance(tile) < 2)
+        {
+            ts.Markers.Remove(m);
+            _log?.Write("ui", new { action = "remove_marker", name = m.Name });
+        }
     }
 
     private void SelectIn(Vector2 a, Vector2 b, bool add)

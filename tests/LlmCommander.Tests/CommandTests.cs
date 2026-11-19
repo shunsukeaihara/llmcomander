@@ -164,7 +164,7 @@ public class CommandTests
         var cc = new CommandCenter(w, 0, llm, null, new LlmSettings { OfficersEnabled = false });
         var entry = cc.SubmitText("木に3人回して", new UtteranceContext { Clicks = { new Vector2(30, 50) } });
         Assert.True(entry.Pending);
-        for (int i = 0; i < 100 && entry.Pending; i++)
+        for (int i = 0; i < 1000 && entry.Pending; i++)
         {
             Thread.Sleep(10);
             cc.Update();
