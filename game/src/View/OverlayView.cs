@@ -64,6 +64,13 @@ public partial class OverlayView : Node2D
 
     public override void _Draw()
     {
+        long perf = ViewPerf.Begin();
+        DrawOverlay();
+        ViewPerf.End("意図表示", perf);
+    }
+
+    private void DrawOverlay()
+    {
         if (World == null) return;
         var w = World;
         var ts = w.Teams[0];

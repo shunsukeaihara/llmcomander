@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using LlmCommander.Command;
@@ -177,69 +178,128 @@ public partial class Hud : CanvasLayer
 
     private static string Esc(string s) => s.Replace("[", "[lb]");
 
-    private VBoxContainer Card(string title, string sub, string tag, Color tagColor, Color border)
+    // ------------------------------------------------------------ カードの使い回し
+    //
+    // 毎回作り直すと日本語の組版がやり直しになって重い(1回100ms以上)。
+    // カードは作戦ごとに使い回し、文面が変わったときだけ書き換える。
+
+    private sealed class CardView
     {
-        var p = new PanelContainer();
-        p.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        public PanelContainer Panel = null!;
+        public StyleBoxFlat Style = null!;
+        public RichTextLabel Body = null!;
+        public VBoxContainer Extra = null!;
+        public string Text = "";
+        public readonly Dictionary<int, (HBoxContainer Row, RichTextLabel Label, string Text, bool Buttons)> Plans = new();
+    }
+
+    private readonly Dictionary<string, CardView> _cardViews = new();
+    private RichTextLabel? _historyText;
+    private string _historyCache = "";
+
+    private CardView GetCard(string key)
+    {
+        if (_cardViews.TryGetValue(key, out var v)) return v;
+        v = new CardView();
+        v.Style = new StyleBoxFlat
         {
-            BgColor = new Color(0.086f, 0.114f, 0.141f), BorderColor = border,
+            BgColor = new Color(0.086f, 0.114f, 0.141f), BorderColor = Palette.PanelBorder,
             BorderWidthLeft = 1, BorderWidthRight = 1, BorderWidthTop = 1, BorderWidthBottom = 1,
             CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6, CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
             ContentMarginLeft = 10, ContentMarginRight = 10, ContentMarginTop = 8, ContentMarginBottom = 8,
-        });
-        _cards.AddChild(p);
+        };
+        v.Panel = new PanelContainer();
+        v.Panel.AddThemeStyleboxOverride("panel", v.Style);
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 4);
-        p.AddChild(box);
-        box.AddChild(Rich($"[b]{Esc(title)}[/b]  [color=#{Hex(Palette.Muted)}]{Esc(sub)}[/color]" +
-                          (tag != "" ? $"   [color=#{Hex(tagColor)}][b]{tag}[/b][/color]" : ""), 14));
-        return box;
+        v.Panel.AddChild(box);
+        v.Body = Rich("", 12);
+        box.AddChild(v.Body);
+        v.Extra = new VBoxContainer();
+        box.AddChild(v.Extra);
+        _cards.AddChild(v.Panel);
+        _cardViews[key] = v;
+        return v;
     }
 
-    private static string Ago(World w, double t)
+    private void SetCard(string key, int order, string text, Color border)
     {
-        int s = (int)(w.Time - t);
-        return s < 60 ? $"{s}秒前" : $"{s / 60}分前";
+        var v = GetCard(key);
+        if (v.Text != text)
+        {
+            v.Text = text;
+            v.Body.Text = text;
+        }
+        if (v.Style.BorderColor != border) v.Style.BorderColor = border;
+        if (v.Panel.GetIndex() != order) _cards.MoveChild(v.Panel, order);
     }
+
+    private static string Title(string title, string sub, string tag, Color tagColor) =>
+        $"[font_size=14][b]{Esc(title)}[/b]  [color=#{Hex(Palette.Muted)}]{Esc(sub)}[/color]" +
+        (tag != "" ? $"   [color=#{Hex(tagColor)}][b]{tag}[/b][/color]" : "") + "[/font_size]";
+
+    private static string At(double t) => Context.Clock(t);
 
     // ------------------------------------------------------------ 更新
 
     public void Refresh(World w, CommandCenter? cc, bool listening, string micNote)
     {
         var ts = w.Teams[0];
-        _resources.Text = $"食 {(int)ts.Stock[Res.Food]}   木 {(int)ts.Stock[Res.Wood]}   金 {(int)ts.Stock[Res.Gold]}   人口 {w.Pop(0)}/{Defs.PopCap}";
-        _clock.Text = Context.Clock(w.Time);
-        _llmState.Text = cc == null ? "LLM未設定(.env に ANTHROPIC_API_KEY)" :
-            cc.InFlight > 0 ? $"LLM 実行中 {cc.InFlight}" : cc.LastError != "" ? "LLMエラー: " + cc.LastError[..Math.Min(40, cc.LastError.Length)] : "LLM 待機";
+        SetText(_resources, $"食 {(int)ts.Stock[Res.Food]}   木 {(int)ts.Stock[Res.Wood]}   金 {(int)ts.Stock[Res.Gold]}   人口 {w.Pop(0)}/{Defs.PopCap}");
+        SetText(_clock, Context.Clock(w.Time));
+        SetText(_llmState, cc == null ? "LLM未設定(.env に ANTHROPIC_API_KEY)" :
+            cc.InFlight > 0 ? $"LLM 実行中 {cc.InFlight}" : cc.LastError != "" ? "LLMエラー: " + cc.LastError[..Math.Min(40, cc.LastError.Length)] : "LLM 待機");
 
-        foreach (var c in _cards.GetChildren()) c.QueueFree();
-        foreach (var c in _history.GetChildren()) c.QueueFree();
-
-        foreach (var op in ts.ActiveOps.Where(o => !o.IsEconomy && !o.IsReserve)) OpCard(w, op);
-        EconomyCard(w, ts);
+        var keys = new HashSet<string>();
+        int order = 0;
+        foreach (var op in ts.ActiveOps.Where(o => !o.IsEconomy && !o.IsReserve))
+        {
+            var (text, border) = OpCard(w, op);
+            string key = "op" + op.Id;
+            SetCard(key, order++, text, border);
+            keys.Add(key);
+        }
+        SetCard("economy", order++, EconomyText(w, ts), Palette.PanelBorder);
+        PlanRows(w, ts, GetCard("economy"));
+        keys.Add("economy");
         var reserve = w.Members(ts.Reserve).ToList();
         if (reserve.Count > 0)
         {
-            var box = Card("予備", "作戦に属していない兵", "", Palette.Muted, Palette.PanelBorder);
-            box.AddChild(Rich(string.Join("  ", reserve.GroupBy(u => u.Kind).Select(g => $"{Defs.Ja(g.Key)} ×{g.Count()}")) +
-                              $"  [color=#{Hex(Palette.Muted)}]集合地点で待機[/color]", 12));
+            SetCard("reserve", order++, Title("予備", "作戦に属していない兵", "", Palette.Muted) + "\n" +
+                    string.Join("  ", reserve.GroupBy(u => u.Kind).OrderBy(g => g.Key).Select(g => $"{Defs.Ja(g.Key)} ×{g.Count()}")) +
+                    $"  [color=#{Hex(Palette.Muted)}]集合地点で待機[/color]", Palette.PanelBorder);
+            keys.Add("reserve");
+        }
+        foreach (var gone in _cardViews.Keys.Where(k => !keys.Contains(k)).ToList())
+        {
+            _cardViews[gone].Panel.QueueFree();
+            _cardViews.Remove(gone);
         }
 
-        foreach (var h in ts.History.AsEnumerable().Reverse().Take(8))
+        // 指示履歴は1つのラベルにまとめ、変わったときだけ書き換える
+        var hist = string.Join("\n", ts.History.AsEnumerable().Reverse().Take(8).Select(h =>
         {
-            string lat = h.Pending ? "処理中…" :
-                $"認識 {h.SttSeconds:0.0}秒 / 解釈 {h.LlmSeconds:0.0}秒";
+            string lat = h.Pending ? "処理中…" : $"認識 {h.SttSeconds:0.0}秒 / 解釈 {h.LlmSeconds:0.0}秒";
             var color = h.Failed ? Palette.Alert : Palette.Muted;
-            _history.AddChild(Rich(
-                $"[color=#{Hex(Palette.Muted)}]{Ago(w, h.Time)}[/color]  「{Esc(h.Utterance)}」\n" +
-                $"[color=#{Hex(color)}]→ {Esc(h.Result)}  ({lat})[/color]", 12));
+            return $"[color=#{Hex(Palette.Muted)}]{At(h.Time)}[/color]  「{Esc(h.Utterance)}」\n" +
+                   $"[color=#{Hex(color)}]→ {Esc(h.Result)}  ({lat})[/color]";
+        }));
+        if (_historyText == null)
+        {
+            _historyText = Rich("", 12);
+            _history.AddChild(_historyText);
+        }
+        if (hist != _historyCache)
+        {
+            _historyCache = hist;
+            _historyText.Text = hist;
         }
 
         var last = ts.History.LastOrDefault();
-        _voiceState.Text = listening ? "● 聞き取り中… (Space を離すと送信。話しながらクリックした地点は「指示点」になる)" :
-            "Space: 話す ・ Enter: 文字入力 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ 選択すると作戦の詳細を地図に表示 ・ Tab: 表示切替 ・ C: 作戦パネル ・ F9: ログ" + micNote;
+        SetText(_voiceState, listening ? "● 聞き取り中… (Space を離すと送信。話しながらクリックした地点は「指示点」になる)" :
+            "Space: 話す ・ Enter: 文字入力 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ 選択すると作戦の詳細を地図に表示 ・ Tab: 表示切替 ・ C: 作戦パネル ・ F9: ログ" + micNote);
         _voiceState.Modulate = listening ? Palette.Warn : Palette.Muted;
-        _voiceLast.Text = last == null ? "" : $"「{last.Utterance}」 " + (last.Pending ? "→ 解釈中…" : "→ " + last.Result);
+        SetText(_voiceLast, last == null ? "" : $"「{last.Utterance}」 " + (last.Pending ? "→ 解釈中…" : "→ " + last.Result));
 
         if (w.Winner is { } win)
         {
@@ -248,7 +308,12 @@ public partial class Hud : CanvasLayer
         }
     }
 
-    private void OpCard(World w, Operation op)
+    private static void SetText(Label l, string text)
+    {
+        if (l.Text != text) l.Text = text;
+    }
+
+    private (string text, Color border) OpCard(World w, Operation op)
     {
         string tag = w.OpTag(op);
         var tagColor = tag switch { "交戦中" => Palette.Warn, "後退中" => Palette.Warn, "兵なし" => Palette.Alert, _ => Palette.Accent };
@@ -256,30 +321,30 @@ public partial class Hud : CanvasLayer
         string where = members.Count > 0
             ? w.Map.RegionName(new System.Numerics.Vector2(members.Average(u => u.Pos.X), members.Average(u => u.Pos.Y)))
             : "";
-        var box = Card(op.Name, where, tag, tagColor, tag == "交戦中" ? Palette.Warn : Palette.PanelBorder);
+        var lines = new List<string> { Title(op.Name, where, tag, tagColor) };
         foreach (var r in op.Roles)
         {
-            int n = w.Members(op, r).Count();
+            int n = members.Count(u => u.Role == r.Name);
             string line = $"[b]{Esc(r.Name)} ×{n}[/b]  {Esc(r.Describe())}";
+            string form = w.FormationState(op, r);
+            if (form != "") line += $"   [color=#{Hex(Palette.Muted)}]隊列: {form}[/color]";
             if (r.Trigger is { } tr) line += $"\n   [color=#{Hex(Palette.Accent)}]条件待ち: {Esc(tr.Text)}[/color]";
             if (r.Superseded != "" && w.Time - r.ChangedAt < 60)
                 line += $"\n   [color=#{Hex(Palette.Muted)}][s]{Esc(r.Superseded)}[/s][/color]";
-            string form = w.FormationState(op, r);
-            if (form != "") line += $"   [color=#{Hex(Palette.Muted)}]隊列: {form}[/color]";
-            box.AddChild(Rich(line, 12));
+            lines.Add(line);
         }
         if (op.Status != "")
-            box.AddChild(Rich($"[color=#{Hex(new Color(0.77f, 0.82f, 0.86f))}]状況: {Esc(op.Status)}[/color] [color=#{Hex(Palette.Muted)}]({Ago(w, op.StatusAt)})[/color]", 12));
+            lines.Add($"[color=#{Hex(new Color(0.77f, 0.82f, 0.86f))}]状況: {Esc(op.Status)}[/color] [color=#{Hex(Palette.Muted)}]({At(op.StatusAt)})[/color]");
         if (op.Changes.Count > 0)
         {
             var c = op.Changes[^1];
-            box.AddChild(Rich($"[color=#{Hex(Palette.Muted)}]直前の変更({Ago(w, c.Time)}) {Esc(c.Text)}[/color]", 11));
+            lines.Add($"[font_size=11][color=#{Hex(Palette.Muted)}]直前の変更({At(c.Time)}) {Esc(c.Text)}[/color][/font_size]");
         }
+        return (string.Join("\n", lines), tag == "交戦中" ? Palette.Warn : Palette.PanelBorder);
     }
 
-    private void EconomyCard(World w, TeamState ts)
+    private static string EconomyText(World w, TeamState ts)
     {
-        var box = Card("経済", "", "", Palette.Good, Palette.PanelBorder);
         var counts = w.GatherCounts(0);
         var villagers = w.TeamUnits(0).Where(u => u.Kind == UnitKind.Villager).ToList();
         string bars = string.Join("   ", Enum.GetValues<Res>().Select(r =>
@@ -289,35 +354,70 @@ public partial class Hud : CanvasLayer
         }));
         int idle = villagers.Count(v => v.Job == JobKind.None);
         int build = villagers.Count(v => v.Job == JobKind.Build);
-        box.AddChild(Rich($"村人 {villagers.Count}人   {bars}" +
-                          (build > 0 ? $"   建設 {build}" : "") + (idle > 0 ? $"   [color=#{Hex(Palette.Muted)}]待機 {idle}[/color]" : ""), 12));
         string train = string.Join("  ", ts.TrainGoal.Where(kv => kv.Value != 0)
             .Select(kv => $"{Defs.Ja(kv.Key)} {(kv.Value < 0 ? "継続" : kv.Value + "体まで")}"));
-        box.AddChild(Rich($"生産: 村人 {(ts.VillagersContinuous ? $"継続(目標{ts.VillagerTarget})" : "停止")}" +
-                          (train != "" ? "  ・  " + train : ""), 12));
+        var lines = new List<string>
+        {
+            Title("経済", "", "", Palette.Good),
+            $"村人 {villagers.Count}人   {bars}" + (build > 0 ? $"   建設 {build}" : "") +
+            (idle > 0 ? $"   [color=#{Hex(Palette.Muted)}]待機 {idle}[/color]" : ""),
+            $"生産: 村人 {(ts.VillagersContinuous ? $"継続(目標{ts.VillagerTarget})" : "停止")}" + (train != "" ? "  ・  " + train : ""),
+        };
+        if (ts.EconomyNote != "")
+            lines.Add($"[font_size=11][color=#{Hex(Palette.Muted)}]直前の変更({At(ts.EconomyNoteAt)}) {Esc(ts.EconomyNote)}[/color][/font_size]");
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>建設計画の行(確認待ちには OK / 取消 ボタン)。計画ごとに使い回す。</summary>
+    private void PlanRows(World w, TeamState ts, CardView card)
+    {
+        var live = new HashSet<int>();
         foreach (var p in ts.Plans.Where(p => p.Status is PlanStatus.Proposed or PlanStatus.Confirmed or PlanStatus.Building))
         {
-            var row = new HBoxContainer();
+            live.Add(p.Id);
             string state = p.Status switch
             {
                 PlanStatus.Proposed => "確認待ち",
                 PlanStatus.Confirmed => "資源待ち",
-                _ => w.Buildings.TryGetValue(p.BuildingId, out var b) ? $"建設中 {b.Progress:P0}" : "建設中",
+                // 進捗は10%刻みにして、書き換えの回数を減らす
+                _ => w.Buildings.TryGetValue(p.BuildingId, out var b) ? $"建設中 {(int)(b.Progress * 10) * 10}%" : "建設中",
             };
-            row.AddChild(Rich($"#{p.Id} {Defs.Ja(p.Kind)}({w.Map.RegionName(p.Center)})  [color=#{Hex(Palette.Accent)}]{state}[/color]", 12));
-            if (p.Status == PlanStatus.Proposed)
+            string text = $"#{p.Id} {Defs.Ja(p.Kind)}({w.Map.RegionName(p.Center)})  [color=#{Hex(Palette.Accent)}]{state}[/color]";
+            bool buttons = p.Status == PlanStatus.Proposed;
+            if (card.Plans.TryGetValue(p.Id, out var row) && row.Buttons != buttons)
             {
-                int id = p.Id;
-                var ok = new Button { Text = "OK", CustomMinimumSize = new Vector2(52, 28) };
-                ok.Pressed += () => PlanDecision?.Invoke(id, true);
-                var no = new Button { Text = "取消", CustomMinimumSize = new Vector2(52, 28) };
-                no.Pressed += () => PlanDecision?.Invoke(id, false);
-                row.AddChild(ok);
-                row.AddChild(no);
+                row.Row.QueueFree();
+                card.Plans.Remove(p.Id);
             }
-            box.AddChild(row);
+            if (!card.Plans.TryGetValue(p.Id, out row))
+            {
+                var hb = new HBoxContainer();
+                var label = Rich("", 12);
+                hb.AddChild(label);
+                if (buttons)
+                {
+                    int id = p.Id;
+                    var ok = new Button { Text = "OK", CustomMinimumSize = new Vector2(52, 28) };
+                    ok.Pressed += () => PlanDecision?.Invoke(id, true);
+                    var no = new Button { Text = "取消", CustomMinimumSize = new Vector2(52, 28) };
+                    no.Pressed += () => PlanDecision?.Invoke(id, false);
+                    hb.AddChild(ok);
+                    hb.AddChild(no);
+                }
+                card.Extra.AddChild(hb);
+                row = (hb, label, "", buttons);
+            }
+            if (row.Text != text)
+            {
+                row.Label.Text = text;
+                row = (row.Row, row.Label, text, row.Buttons);
+            }
+            card.Plans[p.Id] = row;
         }
-        if (ts.EconomyNote != "")
-            box.AddChild(Rich($"[color=#{Hex(Palette.Muted)}]直前の変更({Ago(w, ts.EconomyNoteAt)}) {Esc(ts.EconomyNote)}[/color]", 11));
+        foreach (var id in card.Plans.Keys.Where(id => !live.Contains(id)).ToList())
+        {
+            card.Plans[id].Row.QueueFree();
+            card.Plans.Remove(id);
+        }
     }
 }

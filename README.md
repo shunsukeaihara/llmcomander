@@ -81,5 +81,7 @@ dotnet run -- "騎兵で敵の弓を狙え"   # 任意の発話
 | `tools/sprites` | Blender でユニットのドット絵を作る工程 |
 | `tools/bench` | LLM の応答時間の計測 |
 | `tools/playlog` | プレイログの要約 |
+| `tools/perf` | シミュレーションの重さの計測(`dotnet run -c Release -- 120 --warmup`) |
 
 画面確認用に、`LLMC_DEMO=1` で交戦中の場面から始まり、`LLMC_SCREENSHOT=out.png` で画面を保存して終了します。
+`LLMC_DEMO=battle` は両軍が人口上限いっぱいでぶつかる場面で、`LLMC_PERF=1` を付けると描画側の処理時間を5秒ごとに出力します。

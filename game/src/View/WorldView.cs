@@ -28,6 +28,13 @@ public partial class WorldView : Node2D
 
     public override void _Draw()
     {
+        long perf = ViewPerf.Begin();
+        DrawWorld();
+        ViewPerf.End("地図の描画", perf);
+    }
+
+    private void DrawWorld()
+    {
         if (World == null) return;
         var w = World;
         _items.Clear();

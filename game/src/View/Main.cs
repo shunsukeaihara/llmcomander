@@ -40,7 +40,11 @@ public partial class Main : Node2D
 
     public override void _Ready()
     {
-        _world = MapLayout.CreateValley();
+        // 戦闘や経路探索のコードを先にコンパイルさせるため、裏のスレッドで大規模な戦闘を空回しする
+        // (別の World を使うので、本物の試合とは干渉しない)
+        if (OS.GetEnvironment("LLMC_NO_WARMUP") != "1")
+            System.Threading.Tasks.Task.Run(() => Scenarios.Warmup(60));
+        _world = OS.GetEnvironment("LLMC_DEMO") == "battle" ? Scenarios.BigBattle() : MapLayout.CreateValley();
         _ai = new EnemyAI(_world);
 
         var config = Config.Load(ProjectSettings.GlobalizePath("res://.env"));
@@ -101,6 +105,7 @@ public partial class Main : Node2D
         {
             _acc += delta;
             int steps = 0;
+            long perf = ViewPerf.Begin();
             while (_acc >= Defs.Dt && steps++ < 5)
             {
                 _acc -= Defs.Dt;
@@ -108,9 +113,21 @@ public partial class Main : Node2D
                 _ai.Step();
             }
             if (steps >= 5) _acc = 0;
+            ViewPerf.End("シミュレーション", perf);
         }
         _cc?.Update();
         UpdateLog();
+        if (ViewPerf.Enabled)
+        {
+            _perfFrames++;
+            _perfTimer += delta;
+            if (_perfTimer >= 5)
+            {
+                GD.Print($"[perf] {Context.Clock(_world.Time)} ユニット{_world.Units.Count}体 {_perfFrames / _perfTimer:0}fps  {ViewPerf.Flush(_perfFrames)}");
+                _perfFrames = 0;
+                _perfTimer = 0;
+            }
+        }
 
         // カメラのスクロール
         var move = Vector2.Zero;
@@ -131,10 +148,14 @@ public partial class Main : Node2D
         {
             _hudTimer = 0.3;
             _selected.RemoveWhere(id => !_world.Units.ContainsKey(id));
+            long hp = ViewPerf.Begin();
             _hud.Refresh(_world, _cc, _listening, _micNote);
+            ViewPerf.End("UI更新", hp);
         }
     }
 
+    private int _perfFrames;
+    private double _perfTimer;
     private PlayLog? _log;
     private double _nextPoll, _nextSnapshot;
     private bool _logEnded;

@@ -172,7 +172,10 @@ public sealed class GameMap
         return 10 * Math.Max(dx, dy) + 4 * Math.Min(dx, dy);
     }
 
-    /// <summary>見通しの通る中間点を飛ばして、ジグザグを減らす。</summary>
+    /// <summary>
+    /// 見通しの通る中間点を飛ばして、ジグザグを減らす。
+    /// 手前から順に、見通しが通る限り先へ延ばす(経路の長さにほぼ比例する計算量)。
+    /// </summary>
     private List<Vector2> Smooth(Vector2 from, List<Vector2> path)
     {
         if (path.Count < 3) return path;
@@ -181,8 +184,8 @@ public sealed class GameMap
         int i = 0;
         while (i < path.Count)
         {
-            int j = path.Count - 1;
-            while (j > i && !LineClear(cur, path[j])) j--;
+            int j = i;
+            while (j + 1 < path.Count && LineClear(cur, path[j + 1])) j++;
             result.Add(path[j]);
             cur = path[j];
             i = j + 1;

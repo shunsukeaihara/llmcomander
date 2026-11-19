@@ -20,6 +20,8 @@ public sealed partial class World
     public int? Winner;
     private int _nextId = 1;
     private long _tick;
+    private int _pathBudget;
+    public const int PathBudgetPerStep = 16;
 
     public World(GameMap map)
     {
@@ -145,18 +147,26 @@ public sealed partial class World
         if (Winner != null) return;
         Time += Defs.Dt;
         _tick++;
+        _pathBudget = PathBudgetPerStep;
         Shots.RemoveAll(s => Time - s.Time > 0.4);
 
+        long p = Profiler.Begin();
         if (_tick % 20 == 0)
             foreach (var t in Teams) ManageEconomy(t);
+        Profiler.End("経済", p);
+        p = Profiler.Begin();
         if (_tick % 5 == 0)
             foreach (var t in Teams) CheckTriggers(t);
+        Profiler.End("条件", p);
 
+        p = Profiler.Begin();
         StepBuildings();
         BuildSlots();
+        Profiler.End("隊列", p);
         foreach (var u in Units.Values.ToList())
         {
             if (!u.Alive) continue;
+            p = Profiler.Begin();
             u.Cooldown = MathF.Max(0, u.Cooldown - Defs.Dt);
             u.AnimTime += Defs.Dt;
             var before = u.Pos;
@@ -164,10 +174,15 @@ public sealed partial class World
             else StepMilitary(u);
             if (u.Anim != Anim.Attack || u.Cooldown < u.Stats.Cooldown - 0.5f)
                 u.Anim = Vector2.DistanceSquared(before, u.Pos) > 1e-6f ? Anim.Walk : Anim.Idle;
+            Profiler.End(u.Kind == UnitKind.Villager ? "村人" : "兵", p);
         }
+        p = Profiler.Begin();
         Separate();
+        Profiler.End("押し合い", p);
+        p = Profiler.Begin();
         RemoveDead();
         CheckVictory();
+        Profiler.End("後処理", p);
     }
 
     private void CheckVictory()
@@ -318,7 +333,7 @@ public sealed partial class World
             u.Path = null;
             return true;
         }
-        if (dist < 3f || Map.LineClear(u.Pos, goal))
+        if (dist < 3f)
         {
             u.Path = null;
             MoveStep(u, goal);
@@ -327,7 +342,18 @@ public sealed partial class World
         bool stale = u.Path == null || Vector2.Distance(u.PathGoal, goal) > 1.5f || Time > u.RepathAt;
         if (stale)
         {
-            u.Path = Map.FindPath(u.Pos, goal);
+            // 1ステップで探す経路の数には上限がある。超えたら今回は直進し、次のステップで探す
+            if (_pathBudget <= 0)
+            {
+                MoveStep(u, goal);
+                return false;
+            }
+            _pathBudget--;
+            long pp = Profiler.Begin();
+            // 見通しが通るなら経路探索はしない(毎ステップの見通し判定もしない)
+            u.Path = Map.LineClear(u.Pos, goal) ? new List<Vector2> { goal } : Map.FindPath(u.Pos, goal);
+            Profiler.End("経路探索", pp);
+            if (Profiler.Enabled) Profiler.Totals["経路探索の回数"] = Profiler.Totals.GetValueOrDefault("経路探索の回数") + 1;
             u.PathIndex = 0;
             u.PathGoal = goal;
             u.RepathAt = (float)Time + 4f + (u.Id % 10) * 0.2f;

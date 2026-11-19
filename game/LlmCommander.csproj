@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <RootNamespace>LlmCommander</RootNamespace>
+    <!-- 実行中に最適化し直す機能は、交戦の瞬間に数十msの引っかかりを生むので切る(tools/perf で確認) -->
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Anthropic" Version="13.9.0" />
