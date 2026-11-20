@@ -10,6 +10,9 @@ public partial class WorldView : Node2D
 {
     public World? World;
     public Sprites? Sprites;
+    public Props? Props;
+    private static readonly string[] TreeNames =
+        { "tree_broad_0", "tree_pine_0", "tree_broad_1", "tree_pine_1", "tree_broad_2", "tree_pine_2" };
     public HashSet<int> Selected = new();
     public Rect2 ViewRect;
 
@@ -94,7 +97,8 @@ public partial class WorldView : Node2D
     private void DrawTree(int x, int y)
     {
         var c = Iso.ToScreen(x + 0.5f, y + 0.5f);
-        if (!OnScreen(c)) return;
+        if (!OnScreen(c, 140)) return;
+        if (Props != null && Props.Draw(this, TreeNames[(int)(Hash(x, y) * TreeNames.Length) % TreeNames.Length], c)) return;
         float h = Hash(x, y);
         float size = 13 + h * 6;
         var top = c + new Vector2((h - 0.5f) * 8, -size - 10);
@@ -107,6 +111,7 @@ public partial class WorldView : Node2D
     {
         var c = Iso.ToScreen(n.Pos);
         if (!OnScreen(c)) return;
+        if (Props != null && Props.Draw(this, n.Kind == Res.Gold ? "gold" : "berry", c)) return;
         if (n.Kind == Res.Gold)
         {
             var pts = new[] { c + new Vector2(-14, 0), c + new Vector2(-8, -14), c + new Vector2(4, -18), c + new Vector2(14, -6), c + new Vector2(10, 4), c + new Vector2(-6, 6) };
@@ -147,8 +152,12 @@ public partial class WorldView : Node2D
         DrawColoredPolygon(new[] { p3 + up, p0 + up, mid + ridge }, roof.Darkened(0.1f));
     }
 
+    private static string BuildingSprite(BuildingKind k, int team) =>
+        $"{(k == BuildingKind.TownCenter ? "town_center" : "barracks")}_{(team == 0 ? "blue" : "red")}";
+
     private void DrawBuilding(Building b, bool ghost)
     {
+        if (Props != null && DrawBuildingSprite(b)) return;
         var c = Iso.ToScreen(b.Pos);
         if (!OnScreen(c, 140)) return;
         float height = b.Kind == BuildingKind.TownCenter ? 34 : 24;
@@ -163,6 +172,18 @@ public partial class WorldView : Node2D
         if (b.Hp < b.MaxHp && b.Done) DrawBar(c + new Vector2(0, -height - 30), b.Hp / b.MaxHp, Palette.Good);
     }
 
+    /// <summary>建物のドット絵。建設中は半透明にして進み具合の棒を出す。</summary>
+    private bool DrawBuildingSprite(Building b)
+    {
+        var c = Iso.ToScreen(b.Pos);
+        if (!OnScreen(c, 200)) return true;
+        var mod = b.Done ? Colors.White : new Color(1, 1, 1, 0.35f + 0.5f * b.Progress);
+        if (!Props!.Draw(this, BuildingSprite(b.Kind, b.Team), c, mod)) return false;
+        if (!b.Done) DrawBar(c + new Vector2(0, -70), b.Progress, Palette.Accent);
+        else if (b.Hp < b.MaxHp) DrawBar(c + new Vector2(0, -70), b.Hp / b.MaxHp, b.Team == 0 ? Palette.Good : Palette.Alert);
+        return true;
+    }
+
     private void DrawPlan(BuildPlan p)
     {
         int size = Defs.Buildings[p.Kind].Size;
@@ -172,7 +193,9 @@ public partial class WorldView : Node2D
         var poly = Iso.Diamond(p.TileX, p.TileY, size, size);
         DrawColoredPolygon(poly, fill);
         for (int i = 0; i < 4; i++) DrawDashedLine(poly[i], poly[(i + 1) % 4], col, 2, 6);
-        DrawBox(p.TileX, p.TileY, size, p.Kind == BuildingKind.TownCenter ? 34 : 24, Palette.Team[0], 0.35f, 1);
+        // 仮置きは建物の絵を薄く重ねる(絵がなければ箱)
+        if (Props == null || !Props.Draw(this, BuildingSprite(p.Kind, 0), Iso.ToScreen(p.Center), new Color(0.75f, 0.9f, 1f, 0.45f)))
+            DrawBox(p.TileX, p.TileY, size, p.Kind == BuildingKind.TownCenter ? 34 : 24, Palette.Team[0], 0.35f, 1);
     }
 
     private void DrawBar(Vector2 center, float frac, Color color)

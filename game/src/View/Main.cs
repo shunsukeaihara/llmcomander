@@ -68,7 +68,7 @@ public partial class Main : Node2D
         if (speech == null) _micNote = "  (音声認識なし: OPENAI_API_KEY 未設定)";
 
         AddChild(new GroundView { World = _world });
-        _view = new WorldView { World = _world, Sprites = new Sprites(), Selected = _selected };
+        _view = new WorldView { World = _world, Sprites = new Sprites(), Props = new Props(), Selected = _selected };
         AddChild(_view);
         AddChild(new FogView { World = _world });
         _hud = new Hud();
@@ -85,6 +85,9 @@ public partial class Main : Node2D
 
         if (OS.GetEnvironment("LLMC_DEMO") == "1") RunDemo();
         if (OS.GetEnvironment("LLMC_PANEL_CLOSED") == "1") CallDeferred(nameof(ClosePanel));
+        // 画面確認用: LLMC_CAM="x,y" でカメラをそのタイルに向ける
+        if (OS.GetEnvironment("LLMC_CAM") is { Length: > 0 } cam && cam.Split(',') is [var cx, var cy])
+            _cam.Position = Iso.ToScreen(float.Parse(cx), float.Parse(cy)) + new Vector2(Hud.PanelWidth / 2f / _cam.Zoom.X, 0);
         _hud.TextSubmitted += t => Submit(t, null);
         _hud.PlanDecision += (id, ok) =>
         {
