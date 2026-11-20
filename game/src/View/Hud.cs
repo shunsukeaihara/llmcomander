@@ -131,10 +131,12 @@ public partial class Hud : CanvasLayer
 
         // ミニマップ(地図の右下、音声バーの上)
         _minimapFrame = Panel(new Color(0.05f, 0.07f, 0.09f, 0.9f));
-        Minimap = new Minimap { CustomMinimumSize = Minimap.SizeFor(LlmCommander.Sim.MapLayout.Size) };
+        Minimap = new Minimap();
         _minimapFrame.AddChild(Minimap);
         root.AddChild(_minimapFrame);
         PlaceMinimap();
+        // ウィンドウの大きさが変わったら、ミニマップも同じ割合で大きさを変える
+        GetViewport().SizeChanged += PlaceMinimap;
 
         _banner = new Label
         {
@@ -150,7 +152,10 @@ public partial class Hud : CanvasLayer
 
     private void PlaceMinimap()
     {
-        var size = Minimap.SizeFor(LlmCommander.Sim.MapLayout.Size) + new Vector2(24, 16); // 枠の余白ぶん
+        var inner = Minimap.SizeFor(GetViewport().GetVisibleRect().Size.X);
+        Minimap.CustomMinimumSize = inner;
+        Minimap.Size = inner;
+        var size = inner + new Vector2(24, 16); // 枠の余白ぶん
         float right = _right.Visible ? -PanelWidth - 16 : -16;
         _minimapFrame.AnchorLeft = _minimapFrame.AnchorRight = 1;
         _minimapFrame.AnchorTop = _minimapFrame.AnchorBottom = 1;
@@ -322,7 +327,7 @@ public partial class Hud : CanvasLayer
 
         var last = ts.History.LastOrDefault();
         SetText(_voiceState, listening ? "● 聞き取り中… (Space を離すと送信。話しながらクリックした地点は「指示点」になる)" :
-            "Space: 話す ・ Enter: 文字入力 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ 選択すると作戦の詳細を地図に表示 ・ Tab: 表示切替 ・ C: 作戦パネル ・ F9: ログ" + micNote);
+            "Space: 話す ・ Enter: 文字入力 ・ ドラッグ: 移動 ・ クリック: 中心へ/選択 ・ Shift+ドラッグ: 範囲選択 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ Tab: 表示切替 ・ C: 作戦パネル ・ F9: ログ" + micNote);
         _voiceState.Modulate = listening ? Palette.Warn : Palette.Muted;
         SetText(_voiceLast, last == null ? "" : $"「{last.Utterance}」 " + (last.Pending ? (last.Result != "" ? "→ " + last.Result + " …" : "→ 解釈中…") : "→ " + last.Result));
 

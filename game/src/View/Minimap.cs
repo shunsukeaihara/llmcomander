@@ -13,8 +13,9 @@ namespace LlmCommander.View;
 /// </summary>
 public partial class Minimap : Control
 {
-    /// <summary>タイル1枚あたりの横の画素数(縦はその半分)。</summary>
-    public const float TileScale = 1.4f;
+    /// <summary>画面の幅に対するミニマップの幅の割合(1600px 幅で 224px)。</summary>
+    public const float WidthRatio = 0.14f;
+    public const float MinWidth = 160;
     public World? World;
     /// <summary>カメラが映している範囲(地図の画面座標)。</summary>
     public Rect2 View;
@@ -26,7 +27,15 @@ public partial class Minimap : Control
     private int _mapVersion = -1, _visVersion = -1;
     private bool _dragging;
 
-    public static Vector2 SizeFor(int tiles) => new(tiles * TileScale * 2, tiles * TileScale);
+    /// <summary>画面の幅に合わせたミニマップの大きさ(菱形なので高さは幅の半分)。</summary>
+    public static Vector2 SizeFor(float screenWidth)
+    {
+        float w = Math.Max(MinWidth, screenWidth * WidthRatio);
+        return new Vector2(w, w / 2);
+    }
+
+    /// <summary>タイル1枚あたりの横の画素数(縦はその半分)。今の大きさから決まる。</summary>
+    private float TileScale => World == null ? 1.4f : Size.X / (2f * World.Map.W);
 
     private Transform2D TileToLocal =>
         new(new Vector2(TileScale, TileScale / 2), new Vector2(-TileScale, TileScale / 2), new Vector2(Size.X / 2, 0));

@@ -29,7 +29,13 @@ public partial class Main : Node2D
 
     private enum Tool { Select, Point, Line }
     private Tool _tool = Tool.Select;
-    private Vector2? _dragStart;      // 画面上の位置
+    private Vector2? _dragStart;      // 範囲選択の開始(地図の画面座標)
+    private Vector2? _pressAt;        // 左ボタンを押した位置(ウィンドウ上)
+    private Vector2 _pressCam;        // 押したときのカメラ位置
+    private bool _dragPanning;        // 左ドラッグでカメラを動かしている
+    private bool _boxSelecting;       // Shift+ドラッグで範囲選択している
+    private Tween? _camTween;
+    private const float DragThreshold = 6;
     private SVec? _lineStart;          // タイル座標
     private bool _panning;
     private readonly HashSet<int> _selected = new();
@@ -85,6 +91,16 @@ public partial class Main : Node2D
 
         if (OS.GetEnvironment("LLMC_DEMO") == "1") RunDemo();
         if (OS.GetEnvironment("LLMC_PANEL_CLOSED") == "1") CallDeferred(nameof(ClosePanel));
+        // 4K などの大きな画面では、全体を整数倍に拡大する(ドット絵が崩れないように)
+        // (拡大中は見かけの画面サイズが変わらず通知が来ないので、毎フレーム確かめる)
+        UpdateContentScale();
+
+        // 画面確認用: LLMC_WINDOW="幅x高さ" でウィンドウの大きさを決める
+        if (OS.GetEnvironment("LLMC_WINDOW") is { Length: > 0 } win && win.Split('x') is [var ww, var wh])
+        {
+            DisplayServer.WindowSetSize(new Vector2I(int.Parse(ww), int.Parse(wh)));
+            DisplayServer.WindowSetPosition(Vector2I.Zero);
+        }
         // 画面確認用: LLMC_CAM="x,y" でカメラをそのタイルに向ける
         if (OS.GetEnvironment("LLMC_CAM") is { Length: > 0 } cam && cam.Split(',') is [var cx, var cy])
             _cam.Position = Iso.ToScreen(float.Parse(cx), float.Parse(cy)) + new Vector2(Hud.PanelWidth / 2f / _cam.Zoom.X, 0);
@@ -100,7 +116,7 @@ public partial class Main : Node2D
                 _overlay.SpeakingClicks = _clicks.ToList();
                 return;
             }
-            _cam.Position = Iso.ToScreen(tile);
+            CenterOn(tile, smooth: !press);
         };
         _hud.PlanDecision += (id, ok) =>
         {
@@ -135,6 +151,7 @@ public partial class Main : Node2D
         }
         _cc?.Update();
         UpdateLog();
+        UpdateContentScale();
         if (ViewPerf.Enabled)
         {
             _perfFrames++;
@@ -206,6 +223,18 @@ public partial class Main : Node2D
         _log?.Dispose();
     }
 
+    /// <summary>
+    /// ウィンドウに 1600×900 が何個入るかを整数で数え、その倍率で画面全体を拡大する。
+    /// 余った分は表示範囲を広げて埋める(4K なら2倍で 1920×1080 相当、1440p なら1倍で広く表示)。
+    /// </summary>
+    private void UpdateContentScale()
+    {
+        var size = DisplayServer.WindowGetSize();
+        int k = Mathf.Max(1, Mathf.Min(size.X / 1600, size.Y / 900));
+        var logical = new Vector2I(size.X / k, size.Y / k);
+        if (GetTree().Root.ContentScaleSize != logical) GetTree().Root.ContentScaleSize = logical;
+    }
+
     private int _frames;
 
     private void ClosePanel()
@@ -236,7 +265,8 @@ public partial class Main : Node2D
         // 画面確認用: LLMC_SCREENSHOT にパスがあれば、少し待って画面を保存して終了する
         var shot = OS.GetEnvironment("LLMC_SCREENSHOT");
         if (shot == "" || ++_frames != 40) return;
-        GetViewport().GetTexture().GetImage().SavePng(shot);
+        var img = GetViewport().GetTexture().GetImage();
+        img.SavePng(shot);
         GetTree().Quit();
     }
 
@@ -313,8 +343,23 @@ public partial class Main : Node2D
                 break;
             case InputEventMouseMotion mm:
                 if (_panning) _cam.Position -= mm.Relative / _cam.Zoom;
-                if (_dragStart is { } ds && _tool == Tool.Select && !_listening)
-                    _overlay.SelectBox = new Rect2(ds, GetGlobalMousePosition() - ds).Abs();
+                if (_pressAt is { } pa && _tool == Tool.Select && !_listening)
+                {
+                    var screen = GetViewport().GetMousePosition();
+                    if (!_dragPanning && !_boxSelecting && screen.DistanceTo(pa) > DragThreshold)
+                    {
+                        // Shift を押していれば範囲選択、そうでなければカメラを動かす
+                        if (Input.IsKeyPressed(Key.Shift)) _boxSelecting = true;
+                        else _dragPanning = true;
+                    }
+                    if (_dragPanning)
+                    {
+                        _camTween?.Kill();
+                        _cam.Position = _pressCam - (screen - pa) / _cam.Zoom; // 地図をつかんで引っ張る
+                    }
+                    if (_boxSelecting && _dragStart is { } ds)
+                        _overlay.SelectBox = new Rect2(ds, GetGlobalMousePosition() - ds).Abs();
+                }
                 if (_lineStart is { } ls) _overlay.DraftLine = (ls, MouseTile());
                 break;
         }
@@ -360,14 +405,57 @@ public partial class Main : Node2D
                     break;
                 case Tool.Select when mb.Pressed:
                     _dragStart = GetGlobalMousePosition();
+                    _pressAt = GetViewport().GetMousePosition();
+                    _pressCam = _cam.Position;
+                    _dragPanning = _boxSelecting = false;
                     break;
                 case Tool.Select when !mb.Pressed && _dragStart is { } ds:
-                    SelectIn(ds, GetGlobalMousePosition(), Input.IsKeyPressed(Key.Shift));
+                    if (_boxSelecting) SelectIn(ds, GetGlobalMousePosition(), true);
+                    else if (!_dragPanning) ClickAt(ds, Input.IsKeyPressed(Key.Shift));
                     _dragStart = null;
+                    _pressAt = null;
+                    _dragPanning = _boxSelecting = false;
                     _overlay.SelectBox = null;
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// 左クリック: 自軍のユニットの上なら選択(Shift で追加)、何もない地面ならそこを画面の中心にする。
+    /// </summary>
+    private void ClickAt(Vector2 world, bool add)
+    {
+        var t = Iso.ToTile(world);
+        var u = _world.TeamUnits(0).OrderBy(u => SVec.Distance(u.Pos, t)).FirstOrDefault();
+        if (u != null && SVec.Distance(u.Pos, t) < 1.2f)
+        {
+            if (!add) _selected.Clear();
+            _selected.Add(u.Id);
+            return;
+        }
+        if (!add) _selected.Clear();
+        CenterOn(t, smooth: true);
+    }
+
+    /// <summary>
+    /// タイルを、地図が見えている部分(右の作戦パネルを除いた範囲)の中央に持ってくる。
+    /// </summary>
+    private void CenterOn(SVec tile, bool smooth)
+    {
+        var vp = GetViewportRect().Size;
+        float visibleWidth = vp.X - (_hud.PanelOpen ? Hud.PanelWidth : 0);
+        // 画面の中央と、地図が見えている部分の中央のずれ(ウィンドウ上の画素)
+        var offset = new Vector2(visibleWidth / 2 - vp.X / 2, 0);
+        var target = Iso.ToScreen(tile) - offset / _cam.Zoom;
+        _camTween?.Kill();
+        if (!smooth)
+        {
+            _cam.Position = target;
+            return;
+        }
+        _camTween = CreateTween();
+        _camTween.TweenProperty(_cam, "position", target, 0.18).SetTrans(Tween.TransitionType.Cubic).SetEase(Tween.EaseType.Out);
     }
 
     private void AddMarker(List<SVec> points, string prefix)
