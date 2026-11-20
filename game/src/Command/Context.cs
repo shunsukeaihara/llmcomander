@@ -89,7 +89,33 @@ public static class Context
         return lines.Count == 0 ? "" : string.Join("\n", lines);
     }
 
-    public static string Commander(World w, int team, UtteranceContext ctx, string utterance)
+    /// <summary>建設候補地を計算して名前(候補地1, 2…)を付ける。発話ごとに1回計算し、状況の表示と命令の適用で同じものを使う。</summary>
+    public static Dictionary<string, SiteCandidate> Sites(World w, int team)
+    {
+        var d = new Dictionary<string, SiteCandidate>();
+        int n = 1;
+        foreach (var kind in new[] { BuildingKind.TownCenter, BuildingKind.Barracks })
+            foreach (var c in w.BuildCandidates(team, kind))
+                d[$"候補地{n++}"] = c;
+        return d;
+    }
+
+    public static string SitesText(IReadOnlyDictionary<string, SiteCandidate> sites)
+    {
+        var sb = new StringBuilder();
+        foreach (var g in sites.GroupBy(kv => kv.Value.Kind))
+        {
+            sb.AppendLine($"{Defs.Ja(g.Key)}:");
+            foreach (var (name, c) in g)
+                sb.AppendLine($"- {name}: {c.Region}付近({c.Note})。金まで{c.ToGold:0}、木まで{c.ToWood:0}、食まで{c.ToFood:0}。" +
+                              $"自軍基地から{c.FromOwnBase:0}、敵基地から{c.FromEnemyBase:0}。" +
+                              (c.EnemiesSeenNearby > 0 ? $"近くで敵兵{c.EnemiesSeenNearby}体を目撃" : "敵の目撃なし"));
+        }
+        return sb.ToString();
+    }
+
+    public static string Commander(World w, int team, UtteranceContext ctx, string utterance,
+                                   IReadOnlyDictionary<string, SiteCandidate>? sites = null)
     {
         var ts = w.Teams[team];
         var sb = new StringBuilder();
@@ -114,6 +140,10 @@ public static class Context
             sb.AppendLine("プレイヤーの目印:");
             foreach (var m in ts.Markers) sb.AppendLine($"- {m.Name}({PlaceText(w, m.ToPlace())})");
         }
+
+        sites ??= Sites(w, team);
+        if (sites.Count > 0)
+            sb.Append("\n## 建設候補地(距離はマス。propose_build の site に名前を書く)\n" + SitesText(sites));
 
         sb.AppendLine("\n## 敵(霧があるので、見えているものだけ)");
         sb.AppendLine(EnemyText(w, team));

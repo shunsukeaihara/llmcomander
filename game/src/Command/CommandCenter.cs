@@ -132,7 +132,8 @@ public sealed class CommandCenter
                 T.Markers.Add(new Marker { Name = $"指示点{i + 1}", Points = { ctx.Clicks[i] } });
         }
         var selected = ctx.Selected.ToList();
-        string user = Context.Commander(_w, _team, ctx, utterance);
+        var sites = Context.Sites(_w, _team);
+        string user = Context.Commander(_w, _team, ctx, utterance, sites);
         var req = new LlmRequest(Settings.CommanderModel, Settings.CommanderEffort, Tools.CommanderSystem, user, Tools.CommanderTools);
         var submitted = Stopwatch.StartNew();
         double submittedAt = _w.Time;
@@ -150,7 +151,7 @@ public sealed class CommandCenter
                 reply = await _llm.Call(req, call =>
                 {
                     Interlocked.Increment(ref streamed);
-                    _main.Enqueue(() => ApplyOne(entry, call, selected, results, submitted));
+                    _main.Enqueue(() => ApplyOne(entry, call, selected, results, submitted, sites));
                 });
             }
             catch (Exception ex)
@@ -162,7 +163,7 @@ public sealed class CommandCenter
             _main.Enqueue(() =>
             {
                 Interlocked.Decrement(ref InFlight);
-                Finish(entry, reply, selected, results, alreadyApplied, submitted);
+                Finish(entry, reply, selected, results, alreadyApplied, submitted, sites);
                 Log?.Write("command", new
                 {
                     utterance,
@@ -191,18 +192,20 @@ public sealed class CommandCenter
     }
 
     /// <summary>命令を1つ適用し、履歴の結果欄を更新する(メインスレッド)。</summary>
-    private void ApplyOne(HistoryEntry entry, ToolCall call, IReadOnlyList<int> selected, List<string> results, Stopwatch submitted)
+    private void ApplyOne(HistoryEntry entry, ToolCall call, IReadOnlyList<int> selected, List<string> results, Stopwatch submitted,
+                          IReadOnlyDictionary<string, SiteCandidate> sites)
     {
-        results.Add(_applier.Apply(call, entry.Utterance, selected));
+        results.Add(_applier.Apply(call, entry.Utterance, selected, sites));
         if (entry.FirstActionSeconds == 0) entry.FirstActionSeconds = submitted.Elapsed.TotalSeconds;
         entry.Result = string.Join(" / ", results.Where(r => r != ""));
         T.Version++;
     }
 
     /// <summary>応答が終わったときの後始末。ストリーミングで渡されなかった命令があればここで適用する。</summary>
-    private void Finish(HistoryEntry entry, LlmReply reply, IReadOnlyList<int> selected, List<string> results, int alreadyApplied, Stopwatch submitted)
+    private void Finish(HistoryEntry entry, LlmReply reply, IReadOnlyList<int> selected, List<string> results, int alreadyApplied, Stopwatch submitted,
+                        IReadOnlyDictionary<string, SiteCandidate> sites)
     {
-        foreach (var c in reply.Calls.Skip(alreadyApplied)) ApplyOne(entry, c, selected, results, submitted);
+        foreach (var c in reply.Calls.Skip(alreadyApplied)) ApplyOne(entry, c, selected, results, submitted, sites);
         entry.Pending = false;
         entry.LlmSeconds = reply.Seconds;
         var shown = results.Where(r => r != "").ToList();

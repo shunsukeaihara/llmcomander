@@ -94,17 +94,18 @@ public static class Tools
         """));
 
     public static readonly ToolSpec ProposeBuild = new("propose_build",
-        "建物の建設を提案する。地図に仮置きされ、プレイヤーの確認(OK)で着工する。正確な位置はゲームが決める。",
+        "建物の建設を提案する。地図に仮置きされ、プレイヤーの確認(OK)で着工する。場所は状況の「建設候補地」から site で選ぶのが基本。",
         J("""
         {
           "type": "object",
           "properties": {
             "building": {"type": "string", "enum": ["town_center", "barracks"]},
-            "near": {"type": "string", "description": "どこの近くか。地名・目印・指示点、own_base、または資源 food / wood / gold、まだ使っていない金鉱なら new_gold"},
+            "site": {"type": "string", "description": "状況の「建設候補地」の名前(例: 候補地2)。プレイヤーの条件に一番合うものを選ぶ"},
+            "near": {"type": "string", "description": "候補地に合うものがないときだけ使う。どこの近くか: 地名・目印・指示点、own_base、資源 food / wood / gold、まだ使っていない金鉱なら new_gold"},
             "count": {"type": "integer"},
             "change_summary": {"type": "string"}
           },
-          "required": ["building", "near"]
+          "required": ["building"]
         }
         """));
 
@@ -173,7 +174,7 @@ public static class Tools
         - 場所は状況に出ている名前だけを使う。線の目印に陣取るときは formation=line。
         - 「〜したら〜」は trigger。例:「槍が受け止めたら騎兵を右から回せ」→ 騎兵の役割に trigger(condition=role_engaged, role=槍, then={stance: advance, place: ...})。
         - 内政の人数指定は、今の割り当てから計算して gather に最終的な人数を入れる(例:「木のうち5人を残して残りは金」→ 木=5、金=今の金+移る人数)。
-        - 建設は propose_build で提案するだけ(プレイヤーが確認する)。プレイヤーが「OK」「それで」「建てて」と承認したら confirm_build。
+        - 建設は propose_build で提案するだけ(プレイヤーが確認する)。場所は「建設候補地」の特徴(資源までの距離、基地からの距離、敵の目撃)を見て、プレイヤーの条件に一番合う候補を site で選ぶ。合う候補がなければ near で地名・目印を指定する。プレイヤーが「OK」「それで」「建てて」と承認したら confirm_build。
         - 実行できない・曖昧すぎるときは reply で短く聞き返す。推測で補えるときは推測して実行する。
         """;
 

@@ -80,7 +80,9 @@ public sealed class Applier
     // ------------------------------------------------------------ 適用
 
     /// <param name="selected">発話時に選択されていたユニット。</param>
-    public string Apply(ToolCall call, string utterance, IReadOnlyList<int> selected)
+    /// <param name="sites">発話の時点で LLM に見せた建設候補地(名前 → 候補)。</param>
+    public string Apply(ToolCall call, string utterance, IReadOnlyList<int> selected,
+                        IReadOnlyDictionary<string, SiteCandidate>? sites = null)
     {
         try
         {
@@ -89,7 +91,7 @@ public sealed class Applier
                 "update_operation" => UpdateOperation(call.Input, utterance, selected),
                 "disband_operation" => Disband(call.Input),
                 "set_economy" => SetEconomy(call.Input),
-                "propose_build" => ProposeBuild(call.Input),
+                "propose_build" => ProposeBuild(call.Input, sites),
                 "confirm_build" => Confirm(call.Input, true),
                 "cancel_build" => Confirm(call.Input, false),
                 "reply" => "返答: " + (Str(call.Input, "text") ?? ""),
@@ -293,15 +295,28 @@ public sealed class Applier
         return "内政: " + string.Join("、", parts);
     }
 
-    private string ProposeBuild(JsonElement input)
+    private string ProposeBuild(JsonElement input, IReadOnlyDictionary<string, SiteCandidate>? sites)
     {
         if (!Defs.TryParseBuilding(Str(input, "building"), out var kind)) return "建物の種類が不明です";
         string near = Str(input, "near") ?? "own_base";
         int count = Math.Clamp(Int(input, "count") ?? 1, 1, 3);
         System.Numerics.Vector2? pos = null;
-        if (near == "new_gold") pos = _w.NearResource(_team, Res.Gold, _w.BasePos(_team), unclaimed: true);
-        else if (Defs.TryParseRes(near, out var res)) pos = _w.NearResource(_team, res, _w.BasePos(_team), unclaimed: false);
-        else pos = PlaceOf(near)?.Center;
+        // 候補地が選ばれていればそこに建てる(候補の計算後に塞がっていれば、その近くで探し直す)
+        if (Str(input, "site") is { } siteName)
+        {
+            if (sites != null && sites.TryGetValue(siteName.Trim(), out var cand))
+            {
+                pos = cand.Center;
+                near = $"{siteName}({cand.Region})";
+            }
+            else if (Str(input, "near") == null) return $"建設候補地「{siteName}」が見つかりません";
+        }
+        if (pos == null)
+        {
+            if (near == "new_gold") pos = _w.NearResource(_team, Res.Gold, _w.BasePos(_team), unclaimed: true);
+            else if (Defs.TryParseRes(near, out var res)) pos = _w.NearResource(_team, res, _w.BasePos(_team), unclaimed: false);
+            else pos = PlaceOf(near)?.Center;
+        }
         if (pos == null) return $"建設場所「{near}」が見つかりません";
 
         var ids = new List<int>();
