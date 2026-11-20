@@ -59,14 +59,34 @@ public static class Context
         return sb.ToString();
     }
 
-    /// <summary>敵の兵を地域ごとにまとめる。</summary>
+    /// <summary>今見えている敵の兵を地域ごとにまとめる(霧の中の敵は含めない)。</summary>
     public static string EnemyText(World w, int team, Func<Unit, bool>? filter = null)
     {
-        var enemies = w.Units.Values.Where(u => u.Alive && u.Team != team && u.Kind != UnitKind.Villager);
+        var vis = w.Vision[team];
+        var enemies = w.Units.Values.Where(u => u.Alive && u.Team != team && u.Kind != UnitKind.Villager && vis.IsVisible(u.Pos));
         if (filter != null) enemies = enemies.Where(filter);
         var groups = enemies.GroupBy(u => w.Map.RegionName(u.Pos)).OrderByDescending(g => g.Count()).ToList();
         if (groups.Count == 0) return "見えている敵兵なし";
         return string.Join("\n", groups.Select(g => $"- {g.Key}付近: {Counts(g)}"));
+    }
+
+    /// <summary>今は見えていないが、最後に見た敵兵と、見たことのある敵の建物。</summary>
+    public static string RememberedText(World w, int team)
+    {
+        var vis = w.Vision[team];
+        var lines = new List<string>();
+        var groups = vis.Remembered(w).Where(s => s.Kind != UnitKind.Villager)
+            .GroupBy(s => w.Map.RegionName(s.Pos)).OrderByDescending(g => g.Max(s => s.Time)).Take(6);
+        foreach (var g in groups)
+        {
+            string counts = string.Join(" ", g.GroupBy(s => s.Kind).OrderBy(k => k.Key).Select(k => $"{Defs.Ja(k.Key)}{k.Count()}"));
+            lines.Add($"- {g.Key}付近: {counts}({Clock(w.Time - g.Max(s => s.Time))}前に目撃)");
+        }
+        var blds = vis.Buildings.Values.GroupBy(b => (b.Kind, w.Map.RegionName(new Vector2(b.TileX + 1.5f, b.TileY + 1.5f))))
+            .Select(g => $"{Defs.Ja(g.Key.Kind)}×{g.Count()}({g.Key.Item2})");
+        var bl = string.Join("、", blds);
+        if (bl != "") lines.Add("見たことのある敵の建物: " + bl);
+        return lines.Count == 0 ? "" : string.Join("\n", lines);
     }
 
     public static string Commander(World w, int team, UtteranceContext ctx, string utterance)
@@ -95,8 +115,10 @@ public static class Context
             foreach (var m in ts.Markers) sb.AppendLine($"- {m.Name}({PlaceText(w, m.ToPlace())})");
         }
 
-        sb.AppendLine("\n## 敵");
+        sb.AppendLine("\n## 敵(霧があるので、見えているものだけ)");
         sb.AppendLine(EnemyText(w, team));
+        var remembered = RememberedText(w, team);
+        if (remembered != "") sb.AppendLine("今は見えていない敵(最後に見た位置):\n" + remembered);
         var alerts = ts.Alerts.Where(a => w.Time - a.Time < 30).Select(a => a.Text).Distinct().ToList();
         if (alerts.Count > 0) sb.AppendLine("警報: " + string.Join(" / ", alerts));
 

@@ -140,7 +140,9 @@ public sealed partial class World
         {
             case ConditionKind.EnemyNear:
                 if (tr.Place == null) return false;
+                // 見えている敵だけで判断する(霧の中の敵には反応しない)
                 return Units.Values.Any(o => o.Team != op.Team && o.Alive && o.Kind != UnitKind.Villager &&
+                                             Vision[op.Team].IsVisible(o.Pos) &&
                                              tr.Place.Distance(o.Pos) <= tr.Radius);
             case ConditionKind.RoleEngaged:
             {

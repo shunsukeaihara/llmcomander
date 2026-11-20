@@ -15,6 +15,8 @@ public sealed partial class World
     public readonly Dictionary<int, Building> Buildings = new();
     public readonly List<ResourceNode> Nodes = new();
     public readonly TeamState[] Teams = { new() { Team = 0 }, new() { Team = 1 } };
+    /// <summary>チームごとの視界(霧)。</summary>
+    public readonly Visibility[] Vision;
     public readonly List<Shot> Shots = new();
     public double Time;
     public int? Winner;
@@ -32,6 +34,7 @@ public sealed partial class World
             t.Ops.Add(new Operation { Id = NextId(), Team = t.Team, Name = "予備", IsReserve = true });
             t.ReinforceOp = t.Reserve.Id;
         }
+        Vision = new[] { new Visibility(map), new Visibility(map) };
     }
 
     public int NextId() => _nextId++;
@@ -143,6 +146,13 @@ public sealed partial class World
 
     // ------------------------------------------------------------ 1ステップ
 
+    /// <summary>両チームの視界を計算し直す(0.25秒ごと。試合の開始時にも呼ぶ)。</summary>
+    public void UpdateVision()
+    {
+        Vision[0].Update(this, 0);
+        Vision[1].Update(this, 1);
+    }
+
     public void Step()
     {
         if (Winner != null) return;
@@ -150,6 +160,7 @@ public sealed partial class World
         _tick++;
         _pathBudget = PathBudgetPerStep;
         foreach (var u in Units.Values) u.PrevPos = u.Pos;
+        if (_tick % 5 == 1) UpdateVision();
         Shots.RemoveAll(s => Time - s.Time > 0.4);
 
         long p = Profiler.Begin();
@@ -252,7 +263,7 @@ public sealed partial class World
         float r2 = radius * radius;
         foreach (var o in Units.Values)
         {
-            if (o.Team == u.Team || !o.Alive) continue;
+            if (o.Team == u.Team || !o.Alive || !Vision[u.Team].IsVisible(o.Pos)) continue;
             float d2 = Vector2.DistanceSquared(o.Pos, center);
             if (d2 > r2) continue;
             float score = Vector2.Distance(o.Pos, u.Pos);
@@ -267,7 +278,7 @@ public sealed partial class World
         if (best != null || !buildings) return best;
         foreach (var b in Buildings.Values)
         {
-            if (b.Team == u.Team || !b.Alive) continue;
+            if (b.Team == u.Team || !b.Alive || !Vision[u.Team].AnyTileVisible(b)) continue;
             float d = Vector2.Distance(b.Pos, center) - b.Radius;
             if (d > radius) continue;
             float score = Vector2.Distance(b.Pos, u.Pos) - b.Radius;

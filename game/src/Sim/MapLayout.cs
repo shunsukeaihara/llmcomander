@@ -130,6 +130,7 @@ public static class MapLayout
             for (int i = 0; i < 6; i++)
                 world.SpawnUnit(team, UnitKind.Villager, c + new Vector2(-2.5f + i % 3, 2.5f + i / 3));
         }
+        world.UpdateVision();
         return world;
     }
 }

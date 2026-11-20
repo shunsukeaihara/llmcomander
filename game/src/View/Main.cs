@@ -70,6 +70,7 @@ public partial class Main : Node2D
         AddChild(new GroundView { World = _world });
         _view = new WorldView { World = _world, Sprites = new Sprites(), Selected = _selected };
         AddChild(_view);
+        AddChild(new FogView { World = _world });
         _hud = new Hud();
         AddChild(_hud);
         _overlay = new OverlayView { World = _world, Font = _hud.Font, Selected = _selected };
@@ -279,6 +280,10 @@ public partial class Main : Node2D
                     case Key.Escape: _tool = Tool.Select; _selected.Clear(); break;
                     case Key.Tab: _overlay.ShowIntent = !_overlay.ShowIntent; break;
                     case Key.C: _hud.TogglePanel(); break;
+                    case Key.F8:
+                        // デバッグ用: 霧を切り替える(自軍の視界がすべて見える状態になる)
+                        _world.Vision[0].Enabled = !_world.Vision[0].Enabled;
+                        break;
                     case Key.F9:
                         // ログのフォルダを開く
                         if (_log != null) OS.ShellOpen(System.IO.Path.GetDirectoryName(_log.Path)!);

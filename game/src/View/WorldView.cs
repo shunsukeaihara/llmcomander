@@ -50,12 +50,16 @@ public partial class WorldView : Node2D
                 _items.Add((x + y + 1f, 0, 0, x, y));
         foreach (var n in w.Nodes.Where(n => n.Amount > 0))
             _items.Add((n.Pos.X + n.Pos.Y, 1, n.Id, 0, 0));
+        var vis = w.Vision[0];
         foreach (var b in w.Buildings.Values)
-            _items.Add((b.TileX + b.TileY + b.Size * 2 - 1, 2, b.Id, 0, 0));
+            // 敵の建物は、一度見たものだけ描く
+            if (b.Team == 0 || !vis.Enabled || vis.Buildings.ContainsKey(b.Id))
+                _items.Add((b.TileX + b.TileY + b.Size * 2 - 1, 2, b.Id, 0, 0));
         foreach (var p in w.Teams[0].Plans.Where(p => p.Status is PlanStatus.Proposed or PlanStatus.Confirmed))
             _items.Add((p.TileX + p.TileY + Defs.Buildings[p.Kind].Size * 2 - 1, 4, p.Id, 0, 0));
         foreach (var u in w.Units.Values)
         {
+            if (u.Team != 0 && !vis.IsVisible(u.Pos)) continue; // 霧の中の敵兵は描かない
             var rp = u.RenderPos(Iso.Alpha);
             _items.Add((rp.X + rp.Y, 3, u.Id, 0, 0));
         }
@@ -75,6 +79,7 @@ public partial class WorldView : Node2D
 
         foreach (var s in w.Shots)
         {
+            if (!vis.IsVisible(s.From) && !vis.IsVisible(s.To)) continue;
             var a = Iso.ToScreen(s.From) + new Vector2(0, -10);
             var b = Iso.ToScreen(s.To) + new Vector2(0, -8);
             float t = (float)((w.Time - s.Time) / 0.4);
