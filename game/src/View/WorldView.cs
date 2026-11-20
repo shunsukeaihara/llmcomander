@@ -55,7 +55,10 @@ public partial class WorldView : Node2D
         foreach (var p in w.Teams[0].Plans.Where(p => p.Status is PlanStatus.Proposed or PlanStatus.Confirmed))
             _items.Add((p.TileX + p.TileY + Defs.Buildings[p.Kind].Size * 2 - 1, 4, p.Id, 0, 0));
         foreach (var u in w.Units.Values)
-            _items.Add((u.Pos.X + u.Pos.Y, 3, u.Id, 0, 0));
+        {
+            var rp = u.RenderPos(Iso.Alpha);
+            _items.Add((rp.X + rp.Y, 3, u.Id, 0, 0));
+        }
         _items.Sort((a, b) => a.depth.CompareTo(b.depth));
 
         foreach (var it in _items)
@@ -176,7 +179,7 @@ public partial class WorldView : Node2D
 
     private void DrawUnit(Unit u)
     {
-        var s = Iso.ToScreen(u.Pos);
+        var s = Iso.ToScreen(u.RenderPos(Iso.Alpha));
         if (!OnScreen(s)) return;
         if (Selected.Contains(u.Id))
             DrawArc(s, 10, 0, Mathf.Tau, 20, Palette.Overlay, 1.5f);

@@ -47,6 +47,13 @@ public sealed class Unit : Entity
 
     // 表示用
     public Vector2 Facing = new(1, 0);
+
+    /// <summary>直前のステップでの位置。描画でステップの間を補間するために使う。</summary>
+    public Vector2 PrevPos;
+
+    /// <summary>描画用の位置。alpha は直前のステップから次のステップまでの経過割合(0..1)。</summary>
+    public Vector2 RenderPos(float alpha) => Vector2.Lerp(PrevPos, Pos, alpha);
+
     public Anim Anim;
     public float AnimTime;
     public float LastFoughtAt = -999;

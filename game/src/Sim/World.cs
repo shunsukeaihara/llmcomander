@@ -55,6 +55,7 @@ public sealed partial class World
             u.OpId = op.Id;
             u.Role = role.Name;
         }
+        u.PrevPos = u.Pos;
         Units[u.Id] = u;
         return u;
     }
@@ -148,6 +149,7 @@ public sealed partial class World
         Time += Defs.Dt;
         _tick++;
         _pathBudget = PathBudgetPerStep;
+        foreach (var u in Units.Values) u.PrevPos = u.Pos;
         Shots.RemoveAll(s => Time - s.Time > 0.4);
 
         long p = Profiler.Begin();

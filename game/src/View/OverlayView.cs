@@ -103,7 +103,7 @@ public partial class OverlayView : Node2D
                 {
                     var members = all.Where(u => u.Role == role.Name).ToList();
                     if (members.Count == 0) continue;
-                    var c = new SVec(members.Average(u => u.Pos.X), members.Average(u => u.Pos.Y));
+                    var c = new SVec(members.Average(u => u.RenderPos(Iso.Alpha).X), members.Average(u => u.RenderPos(Iso.Alpha).Y));
                     var sc = Iso.ToScreen(c);
                     if (role.Stance != Stance.Hold && SVec.Distance(c, role.Anchor.Center) > 4)
                         Arrow(sc, Iso.ToScreen(role.Anchor.Center), Palette.Accent, 2.5f, false);
@@ -111,7 +111,7 @@ public partial class OverlayView : Node2D
                         Arrow(sc, Iso.ToScreen(ta.Center), Palette.Muted, 2f, true);
                 }
                 // 地図には作戦名と状態だけの小さな札。詳しい内容は右パネルと、選択したときだけ
-                var oc = new SVec(all.Average(u => u.Pos.X), all.Average(u => u.Pos.Y));
+                var oc = new SVec(all.Average(u => u.RenderPos(Iso.Alpha).X), all.Average(u => u.RenderPos(Iso.Alpha).Y));
                 if (!all.Any(u => Selected.Contains(u.Id)))
                 {
                     Label(Iso.ToScreen(oc) + new Vector2(0, -46), $"{op.Name} {w.OpTag(op)}", Palette.Overlay, bg, 10);

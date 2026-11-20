@@ -9,6 +9,9 @@ public static class Iso
     public const float HalfW = 32f;
     public const float HalfH = 16f;
 
+    /// <summary>直前のシミュレーションのステップから次のステップまでの経過割合(0..1)。描画の補間に使う。</summary>
+    public static float Alpha;
+
     public static Vector2 ToScreen(float x, float y) => new((x - y) * HalfW, (x + y) * HalfH);
     public static Vector2 ToScreen(SVec p) => ToScreen(p.X, p.Y);
 

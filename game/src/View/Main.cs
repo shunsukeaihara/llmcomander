@@ -113,6 +113,7 @@ public partial class Main : Node2D
                 _ai.Step();
             }
             if (steps >= 5) _acc = 0;
+            Iso.Alpha = Mathf.Clamp((float)(_acc / Defs.Dt), 0, 1);
             ViewPerf.End("シミュレーション", perf);
         }
         _cc?.Update();
