@@ -89,6 +89,19 @@ public partial class Main : Node2D
         if (OS.GetEnvironment("LLMC_CAM") is { Length: > 0 } cam && cam.Split(',') is [var cx, var cy])
             _cam.Position = Iso.ToScreen(float.Parse(cx), float.Parse(cy)) + new Vector2(Hud.PanelWidth / 2f / _cam.Zoom.X, 0);
         _hud.TextSubmitted += t => Submit(t, null);
+        _hud.Minimap.World = _world;
+        _hud.Minimap.Picked += (tile, press) =>
+        {
+            if (_listening)
+            {
+                // 話しながら指した場所は指示点になる(押した瞬間だけ)
+                if (!press) return;
+                _clicks.Add(tile);
+                _overlay.SpeakingClicks = _clicks.ToList();
+                return;
+            }
+            _cam.Position = Iso.ToScreen(tile);
+        };
         _hud.PlanDecision += (id, ok) =>
         {
             var plan = _world.Teams[0].Plans.FirstOrDefault(p => p.Id == id && p.Status == PlanStatus.Proposed);
@@ -147,6 +160,7 @@ public partial class Main : Node2D
 
         var vp = GetViewportRect().Size / _cam.Zoom;
         _view.ViewRect = new Rect2(_cam.Position - vp / 2, vp);
+        _hud.Minimap.View = _view.ViewRect;
 
         _hudTimer -= delta;
         if (_hudTimer <= 0)

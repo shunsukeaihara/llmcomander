@@ -26,6 +26,8 @@ public partial class Hud : CanvasLayer
     private Label _banner = null!;
     private PanelContainer _right = null!;
     private PanelContainer _voice = null!;
+    private PanelContainer _minimapFrame = null!;
+    public Minimap Minimap { get; private set; } = null!;
     private Button _toggle = null!;
 
     /// <summary>右パネルが開いているか。</summary>
@@ -36,6 +38,7 @@ public partial class Hud : CanvasLayer
     {
         _right.Visible = !_right.Visible;
         _voice.OffsetRight = _right.Visible ? -PanelWidth - 16 : -16;
+        PlaceMinimap();
         _toggle.Text = _right.Visible ? "作戦パネルを閉じる (C)" : "作戦パネルを開く (C)";
     }
     private Font _font = null!;
@@ -126,6 +129,13 @@ public partial class Hud : CanvasLayer
         vbox.AddChild(_voiceResult);
         vbox.AddChild(_input);
 
+        // ミニマップ(地図の右下、音声バーの上)
+        _minimapFrame = Panel(new Color(0.05f, 0.07f, 0.09f, 0.9f));
+        Minimap = new Minimap { CustomMinimumSize = Minimap.SizeFor(LlmCommander.Sim.MapLayout.Size) };
+        _minimapFrame.AddChild(Minimap);
+        root.AddChild(_minimapFrame);
+        PlaceMinimap();
+
         _banner = new Label
         {
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -137,6 +147,18 @@ public partial class Hud : CanvasLayer
     }
 
     public Font Font => _font;
+
+    private void PlaceMinimap()
+    {
+        var size = Minimap.SizeFor(LlmCommander.Sim.MapLayout.Size) + new Vector2(24, 16); // 枠の余白ぶん
+        float right = _right.Visible ? -PanelWidth - 16 : -16;
+        _minimapFrame.AnchorLeft = _minimapFrame.AnchorRight = 1;
+        _minimapFrame.AnchorTop = _minimapFrame.AnchorBottom = 1;
+        _minimapFrame.OffsetRight = right;
+        _minimapFrame.OffsetLeft = right - size.X;
+        _minimapFrame.OffsetBottom = -74;
+        _minimapFrame.OffsetTop = -74 - size.Y;
+    }
 
     public void OpenInput()
     {
