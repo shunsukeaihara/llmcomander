@@ -145,7 +145,7 @@ public class CommandTests
     private sealed class FakeLlm : ILlm
     {
         public LlmRequest? Last;
-        public Task<LlmReply> Call(LlmRequest request, CancellationToken ct = default)
+        public Task<LlmReply> Call(LlmRequest request, Action<ToolCall>? onToolCall = null, CancellationToken ct = default)
         {
             Last = request;
             var calls = new List<ToolCall>

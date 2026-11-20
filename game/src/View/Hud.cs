@@ -279,7 +279,10 @@ public partial class Hud : CanvasLayer
         // 指示履歴は1つのラベルにまとめ、変わったときだけ書き換える
         var hist = string.Join("\n", ts.History.AsEnumerable().Reverse().Take(8).Select(h =>
         {
-            string lat = h.Pending ? "処理中…" : $"認識 {h.SttSeconds:0.0}秒 / 解釈 {h.LlmSeconds:0.0}秒";
+            string lat = h.Pending ? "処理中…" :
+                $"認識 {h.SttSeconds:0.0}秒" +
+                (h.FirstActionSeconds > 0 ? $" / 最初の命令 {h.FirstActionSeconds:0.0}秒" : "") +
+                $" / 解釈完了 {h.LlmSeconds:0.0}秒";
             var color = h.Failed ? Palette.Alert : Palette.Muted;
             return $"[color=#{Hex(Palette.Muted)}]{At(h.Time)}[/color]  「{Esc(h.Utterance)}」\n" +
                    $"[color=#{Hex(color)}]→ {Esc(h.Result)}  ({lat})[/color]";
@@ -299,7 +302,7 @@ public partial class Hud : CanvasLayer
         SetText(_voiceState, listening ? "● 聞き取り中… (Space を離すと送信。話しながらクリックした地点は「指示点」になる)" :
             "Space: 話す ・ Enter: 文字入力 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ 選択すると作戦の詳細を地図に表示 ・ Tab: 表示切替 ・ C: 作戦パネル ・ F9: ログ" + micNote);
         _voiceState.Modulate = listening ? Palette.Warn : Palette.Muted;
-        SetText(_voiceLast, last == null ? "" : $"「{last.Utterance}」 " + (last.Pending ? "→ 解釈中…" : "→ " + last.Result));
+        SetText(_voiceLast, last == null ? "" : $"「{last.Utterance}」 " + (last.Pending ? (last.Result != "" ? "→ " + last.Result + " …" : "→ 解釈中…") : "→ " + last.Result));
 
         if (w.Winner is { } win)
         {

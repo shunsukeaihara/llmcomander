@@ -50,7 +50,8 @@ def load(path):
 def show_command(c, n):
     print(f"\n===== 発話 {n}: 「{c.get('utterance')}」 ({clock(c.get('submitted_t'))}) =====")
     print(f"モデル: {c.get('model')} (effort {c.get('effort')})  "
-          f"認識 {c.get('stt_seconds', 0):.2f}秒 / 解釈 {c.get('llm_seconds', 0):.2f}秒 / 反映まで {c.get('applied_seconds', 0):.2f}秒")
+          f"認識 {c.get('stt_seconds', 0):.2f}秒 / 最初の命令 {c.get('first_action_seconds', 0):.2f}秒 / "
+          f"解釈完了 {c.get('llm_seconds', 0):.2f}秒 / 全部反映 {c.get('applied_seconds', 0):.2f}秒")
     if c.get("error"):
         print("エラー:", c["error"])
     print("\n--- LLMに渡した状況 ---")
@@ -93,9 +94,10 @@ def main():
     voice = [c for c in commands if c.get("source") == "voice"]
     print(f"発話 {len(commands)}件(音声 {len(voice)}件、文字 {len(commands) - len(voice)}件)")
     print("  音声認識  :", stats([c.get("stt_seconds") for c in voice]))
+    print("  最初の命令:", stats([c.get("first_action_seconds") for c in commands if c.get("first_action_seconds")]))
     print("  司令LLM   :", stats([c.get("llm_seconds") for c in commands if not c.get("error")]))
     print("  反映まで  :", stats([c.get("applied_seconds") for c in commands if not c.get("error")]))
-    print("  話し終わり→反映:", stats([(c.get("stt_seconds") or 0) + (c.get("applied_seconds") or 0) for c in voice]))
+    print("  話し終わり→最初の命令:", stats([(c.get("stt_seconds") or 0) + c["first_action_seconds"] for c in voice if c.get("first_action_seconds")]))
     officers = by("officer")
     if officers:
         errs = sum(1 for o in officers if o.get("error"))
@@ -107,7 +109,8 @@ def main():
     print("\n## 発話と結果")
     for i, c in enumerate(commands, 1):
         mark = "✗" if c.get("error") else ("?" if any(x["name"] == "reply" for x in c.get("calls", [])) else " ")
-        lat = f"{c.get('stt_seconds', 0):.1f}+{c.get('llm_seconds', 0):.1f}秒"
+        lat = (f"認識{c.get('stt_seconds', 0):.1f} 最初{c.get('first_action_seconds', 0):.1f} "
+               f"完了{c.get('llm_seconds', 0):.1f}秒")
         print(f"{mark}{i:>3}. {clock(c.get('submitted_t'))} [{c.get('source')}] 「{c.get('utterance')}」 ({lat})")
         print(f"       → {c.get('error') or c.get('result')}")
     print("  (✗=失敗、?=LLMが聞き返した。詳細は --cmd 番号)")

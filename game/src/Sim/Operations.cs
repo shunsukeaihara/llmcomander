@@ -182,6 +182,8 @@ public sealed class HistoryEntry
     public string Result = "";
     public double SttSeconds;
     public double LlmSeconds;
+    /// <summary>送信から最初の命令がゲームに反映されるまでの秒数(0 は未反映)。</summary>
+    public double FirstActionSeconds;
     public bool Pending = true;
     public bool Failed;
 }

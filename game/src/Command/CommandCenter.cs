@@ -136,6 +136,9 @@ public sealed class CommandCenter
         var req = new LlmRequest(Settings.CommanderModel, Settings.CommanderEffort, Tools.CommanderSystem, user, Tools.CommanderTools);
         var submitted = Stopwatch.StartNew();
         double submittedAt = _w.Time;
+        // 適用結果(メインスレッドだけが触る)と、ストリーミングで先に渡された命令の数
+        var results = new List<string>();
+        int streamed = 0;
 
         Interlocked.Increment(ref InFlight);
         Task.Run(async () =>
@@ -143,17 +146,23 @@ public sealed class CommandCenter
             LlmReply reply;
             try
             {
-                reply = await _llm.Call(req);
+                // 命令が1つ完成するたびに、応答の残りを待たずにゲームへ反映する
+                reply = await _llm.Call(req, call =>
+                {
+                    Interlocked.Increment(ref streamed);
+                    _main.Enqueue(() => ApplyOne(entry, call, selected, results, submitted));
+                });
             }
             catch (Exception ex)
             {
                 reply = new LlmReply(Array.Empty<ToolCall>(), "", 0, ex.Message);
             }
+            int alreadyApplied = Volatile.Read(ref streamed);
             // 実行中の数は、結果をゲームに取り込んだ時点で減らす
             _main.Enqueue(() =>
             {
                 Interlocked.Decrement(ref InFlight);
-                var results = ApplyCommander(entry, reply, selected);
+                Finish(entry, reply, selected, results, alreadyApplied, submitted);
                 Log?.Write("command", new
                 {
                     utterance,
@@ -161,8 +170,11 @@ public sealed class CommandCenter
                     submitted_t = Math.Round(submittedAt, 2),
                     stt_seconds = Math.Round(sttSeconds, 3),
                     llm_seconds = Math.Round(reply.Seconds, 3),
-                    // 送信してからゲームに反映されるまで(LLM の時間に、結果を取り込むまでの待ちを足したもの)
+                    // 送信してから最初の命令がゲームに反映されるまで
+                    first_action_seconds = Math.Round(entry.FirstActionSeconds, 3),
+                    // 送信してから全部の命令がゲームに反映されるまで
                     applied_seconds = Math.Round(submitted.Elapsed.TotalSeconds, 3),
+                    streamed = alreadyApplied,
                     model = req.Model,
                     effort = req.Effort,
                     selected = selected.Count,
@@ -178,24 +190,38 @@ public sealed class CommandCenter
         return entry;
     }
 
-    /// <returns>ツール呼び出しごとの適用結果(呼び出しと同じ順)。</returns>
-    private List<string> ApplyCommander(HistoryEntry entry, LlmReply reply, IReadOnlyList<int> selected)
+    /// <summary>命令を1つ適用し、履歴の結果欄を更新する(メインスレッド)。</summary>
+    private void ApplyOne(HistoryEntry entry, ToolCall call, IReadOnlyList<int> selected, List<string> results, Stopwatch submitted)
     {
+        results.Add(_applier.Apply(call, entry.Utterance, selected));
+        if (entry.FirstActionSeconds == 0) entry.FirstActionSeconds = submitted.Elapsed.TotalSeconds;
+        entry.Result = string.Join(" / ", results.Where(r => r != ""));
+        T.Version++;
+    }
+
+    /// <summary>応答が終わったときの後始末。ストリーミングで渡されなかった命令があればここで適用する。</summary>
+    private void Finish(HistoryEntry entry, LlmReply reply, IReadOnlyList<int> selected, List<string> results, int alreadyApplied, Stopwatch submitted)
+    {
+        foreach (var c in reply.Calls.Skip(alreadyApplied)) ApplyOne(entry, c, selected, results, submitted);
         entry.Pending = false;
         entry.LlmSeconds = reply.Seconds;
+        var shown = results.Where(r => r != "").ToList();
         if (reply.Error != null)
         {
-            entry.Failed = true;
-            entry.Result = "LLMの呼び出しに失敗: " + reply.Error;
             LastError = reply.Error;
-            return new List<string>();
+            if (shown.Count == 0)
+            {
+                entry.Failed = true;
+                entry.Result = "LLMの呼び出しに失敗: " + reply.Error;
+                return;
+            }
+            // 途中までの命令は反映済み。残りが失敗したことを添える
+            entry.Result = string.Join(" / ", shown) + " ※" + reply.Error;
+            return;
         }
-        var results = reply.Calls.Select(c => _applier.Apply(c, entry.Utterance, selected)).ToList();
-        var shown = results.Where(r => r != "").ToList();
         if (shown.Count == 0) shown.Add(reply.Text != "" ? "返答: " + reply.Text : "命令なし");
         entry.Result = string.Join(" / ", shown);
         T.Version++;
-        return results;
     }
 
     // ------------------------------------------------------------ 担当LLM

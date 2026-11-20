@@ -11,7 +11,7 @@ public class PlayLogTests
     /// <summary>司令役には作戦を、担当には状況報告を返す偽物の LLM。</summary>
     private sealed class ScriptedLlm : ILlm
     {
-        public Task<LlmReply> Call(LlmRequest request, CancellationToken ct = default)
+        public Task<LlmReply> Call(LlmRequest request, Action<ToolCall>? onToolCall = null, CancellationToken ct = default)
         {
             if (request.Tools.Any(t => t.Name == "report"))
                 return Task.FromResult(new LlmReply(new[] { new ToolCall("report", J("""{"status": "北東の林で待機中"}""")) }, "", 0.3));

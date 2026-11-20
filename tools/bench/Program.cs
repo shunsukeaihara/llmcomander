@@ -40,14 +40,18 @@ string[] utterances = args.Length > 0 ? args : new[]
 
 var applier = new Applier(w, 0);
 var times = new List<double>();
+var firsts = new List<double>();
 foreach (var u in utterances)
 {
     var user = Context.Commander(w, 0, new UtteranceContext(), u);
     var req = new LlmRequest(settings.CommanderModel, settings.CommanderEffort, Tools.CommanderSystem, user, Tools.CommanderTools);
     var sw = Stopwatch.StartNew();
-    var reply = await llm.Call(req);
+    double? first = null;
+    // ゲームと同じく、ストリーミングで受け取って最初の命令が完成した時刻を測る
+    var reply = await llm.Call(req, _ => first ??= sw.Elapsed.TotalSeconds);
     times.Add(sw.Elapsed.TotalSeconds);
-    Console.WriteLine($"\n=== 「{u}」 {sw.Elapsed.TotalSeconds:0.00}秒 ({settings.CommanderModel}, effort {settings.CommanderEffort})");
+    if (first is { } f) firsts.Add(f);
+    Console.WriteLine($"\n=== 「{u}」 最初の命令 {(first is { } f2 ? f2.ToString("0.00") + "秒" : "なし")} / 完了 {sw.Elapsed.TotalSeconds:0.00}秒 ({settings.CommanderModel}, effort {settings.CommanderEffort})");
     if (reply.Error != null) Console.WriteLine("エラー: " + reply.Error);
     foreach (var c in reply.Calls)
     {
@@ -65,5 +69,7 @@ var oreply = await llm.Call(officerReq);
 Console.WriteLine($"\n=== 担当LLM({settings.OfficerModel}) {osw.Elapsed.TotalSeconds:0.00}秒 {oreply.Error}");
 foreach (var c in oreply.Calls) Console.WriteLine($"  {c.Name} {c.Input}");
 
-Console.WriteLine($"\n司令LLM: 平均 {times.Average():0.00}秒 / 最大 {times.Max():0.00}秒 / 最小 {times.Min():0.00}秒");
+Console.WriteLine($"\n司令LLM 完了まで: 平均 {times.Average():0.00}秒 / 最大 {times.Max():0.00}秒 / 最小 {times.Min():0.00}秒");
+if (firsts.Count > 0)
+    Console.WriteLine($"司令LLM 最初の命令まで: 平均 {firsts.Average():0.00}秒 / 最大 {firsts.Max():0.00}秒 / 最小 {firsts.Min():0.00}秒");
 return 0;

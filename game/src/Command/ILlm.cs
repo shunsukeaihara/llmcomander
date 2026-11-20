@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
@@ -17,12 +18,17 @@ public sealed record LlmRequest(
     IReadOnlyList<ToolSpec> Tools,
     int MaxTokens = 4000);
 
-public sealed record LlmReply(IReadOnlyList<ToolCall> Calls, string Text, double Seconds, string? Error = null);
+/// <param name="FirstCallSeconds">最初のツール呼び出しが完成するまでの秒数(ストリーミング時。なければ Seconds と同じ)。</param>
+public sealed record LlmReply(IReadOnlyList<ToolCall> Calls, string Text, double Seconds, string? Error = null, double? FirstCallSeconds = null);
 
 /// <summary>LLMの呼び出し口。本番は Claude、テストは決め打ちの返答を返す偽物。</summary>
 public interface ILlm
 {
-    Task<LlmReply> Call(LlmRequest request, CancellationToken ct = default);
+    /// <param name="onToolCall">
+    /// 指定すると応答をストリーミングで受け取り、ツール呼び出しが1つ完成するたびに(別スレッドから)呼ぶ。
+    /// 戻り値の Calls には、ここで渡したものも含めて全部が入る。
+    /// </param>
+    Task<LlmReply> Call(LlmRequest request, Action<ToolCall>? onToolCall = null, CancellationToken ct = default);
 }
 
 /// <summary>音声認識の呼び出し口。</summary>
