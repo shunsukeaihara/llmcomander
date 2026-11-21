@@ -31,9 +31,7 @@ public partial class Main : Node2D
     private Tool _tool = Tool.Select;
     private Vector2? _dragStart;      // 範囲選択の開始(地図の画面座標)
     private Vector2? _pressAt;        // 左ボタンを押した位置(ウィンドウ上)
-    private Vector2 _pressCam;        // 押したときのカメラ位置
-    private bool _dragPanning;        // 左ドラッグでカメラを動かしている
-    private bool _boxSelecting;       // Shift+ドラッグで範囲選択している
+    private bool _boxSelecting;       // 左ドラッグで範囲選択している
     private Tween? _camTween;
     private const float DragThreshold = 6;
     private SVec? _lineStart;          // タイル座標
@@ -346,17 +344,8 @@ public partial class Main : Node2D
                 if (_pressAt is { } pa && _tool == Tool.Select && !_listening)
                 {
                     var screen = GetViewport().GetMousePosition();
-                    if (!_dragPanning && !_boxSelecting && screen.DistanceTo(pa) > DragThreshold)
-                    {
-                        // Shift を押していれば範囲選択、そうでなければカメラを動かす
-                        if (Input.IsKeyPressed(Key.Shift)) _boxSelecting = true;
-                        else _dragPanning = true;
-                    }
-                    if (_dragPanning)
-                    {
-                        _camTween?.Kill();
-                        _cam.Position = _pressCam - (screen - pa) / _cam.Zoom; // 地図をつかんで引っ張る
-                    }
+                    // 少し動かしたら範囲選択(動かさずに離せばクリック)
+                    if (!_boxSelecting && screen.DistanceTo(pa) > DragThreshold) _boxSelecting = true;
                     if (_boxSelecting && _dragStart is { } ds)
                         _overlay.SelectBox = new Rect2(ds, GetGlobalMousePosition() - ds).Abs();
                 }
@@ -406,15 +395,14 @@ public partial class Main : Node2D
                 case Tool.Select when mb.Pressed:
                     _dragStart = GetGlobalMousePosition();
                     _pressAt = GetViewport().GetMousePosition();
-                    _pressCam = _cam.Position;
-                    _dragPanning = _boxSelecting = false;
+                    _boxSelecting = false;
                     break;
                 case Tool.Select when !mb.Pressed && _dragStart is { } ds:
-                    if (_boxSelecting) SelectIn(ds, GetGlobalMousePosition(), true);
-                    else if (!_dragPanning) ClickAt(ds, Input.IsKeyPressed(Key.Shift));
+                    if (_boxSelecting) SelectIn(ds, GetGlobalMousePosition(), Input.IsKeyPressed(Key.Shift));
+                    else ClickAt(ds, Input.IsKeyPressed(Key.Shift));
                     _dragStart = null;
                     _pressAt = null;
-                    _dragPanning = _boxSelecting = false;
+                    _boxSelecting = false;
                     _overlay.SelectBox = null;
                     break;
             }
