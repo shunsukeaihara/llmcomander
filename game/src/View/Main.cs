@@ -104,6 +104,8 @@ public partial class Main : Node2D
             _cam.Position = Iso.ToScreen(float.Parse(cx), float.Parse(cy)) + new Vector2(Hud.PanelWidth / 2f / _cam.Zoom.X, 0);
         _hud.TextSubmitted += t => Submit(t, null);
         _hud.Minimap.World = _world;
+        _hud.CardPicked += JumpToCard;
+        _hud.AlertPicked += () => { _alertCursor = 0; JumpToAlert(); };
         _hud.Minimap.Picked += (tile, press) =>
         {
             if (_listening)
@@ -171,7 +173,9 @@ public partial class Main : Node2D
             if (Input.IsKeyPressed(Key.W) || Input.IsKeyPressed(Key.Up)) move.Y -= 1;
             if (Input.IsKeyPressed(Key.S) || Input.IsKeyPressed(Key.Down)) move.Y += 1;
         }
-        _cam.Position += move * (float)delta * 700 / _cam.Zoom.X;
+        move += EdgeScroll();
+        if (move != Vector2.Zero) _camTween?.Kill();
+        _cam.Position += move.Normalized() * (float)delta * 700 / _cam.Zoom.X;
 
         var vp = GetViewportRect().Size / _cam.Zoom;
         _view.ViewRect = new Rect2(_cam.Position - vp / 2, vp);
@@ -231,6 +235,62 @@ public partial class Main : Node2D
         int k = Mathf.Max(1, Mathf.Min(size.X / 1600, size.Y / 900));
         var logical = new Vector2I(size.X / k, size.Y / k);
         if (GetTree().Root.ContentScaleSize != logical) GetTree().Root.ContentScaleSize = logical;
+    }
+
+    /// <summary>マウスが画面の端にあれば、その方向にスクロールする(ウィンドウが前面で、マウスが中にあるときだけ)。</summary>
+    private Vector2 EdgeScroll()
+    {
+        const float margin = 6;
+        if (!DisplayServer.WindowIsFocused() || _hud.Typing) return Vector2.Zero;
+        var size = GetViewportRect().Size;
+        var m = GetViewport().GetMousePosition();
+        if (m.X < 0 || m.Y < 0 || m.X > size.X || m.Y > size.Y) return Vector2.Zero;
+        var dir = Vector2.Zero;
+        if (m.X <= margin) dir.X -= 1;
+        if (m.X >= size.X - margin) dir.X += 1;
+        if (m.Y <= margin) dir.Y -= 1;
+        if (m.Y >= size.Y - margin) dir.Y += 1;
+        return dir;
+    }
+
+    /// <summary>作戦カードを押したら、その作戦の部隊の中心(兵がいなければ持ち場)へ移る。</summary>
+    private void JumpToCard(string key)
+    {
+        var ts = _world.Teams[0];
+        if (key == "economy")
+        {
+            CenterOn(_world.BasePos(0), smooth: true);
+            return;
+        }
+        if (key == "reserve")
+        {
+            var reserve = _world.Members(ts.Reserve).ToList();
+            CenterOn(reserve.Count > 0 ? new SVec(reserve.Average(u => u.Pos.X), reserve.Average(u => u.Pos.Y)) : ts.Rally, smooth: true);
+            return;
+        }
+        if (!key.StartsWith("op") || !int.TryParse(key[2..], out int id)) return;
+        var op = ts.Ops.FirstOrDefault(o => o.Id == id);
+        if (op == null) return;
+        var members = _world.Members(op).ToList();
+        if (members.Count > 0)
+            CenterOn(new SVec(members.Average(u => u.Pos.X), members.Average(u => u.Pos.Y)), smooth: true);
+        else if (op.Roles.FirstOrDefault() is { } r)
+            CenterOn(r.Anchor.Center, smooth: true);
+    }
+
+    private int _alertCursor;
+    private double _lastAlertJump = -999;
+
+    /// <summary>直近の警報の場所へ移る。続けて押すと一つ前の警報へさかのぼる。</summary>
+    private void JumpToAlert()
+    {
+        var alerts = _world.Teams[0].Alerts.Where(a => _world.Time - a.Time < 120).Reverse().ToList();
+        if (alerts.Count == 0) return;
+        if (_world.Time - _lastAlertJump > 4) _alertCursor = 0; // しばらく押さなければ最新から
+        var a = alerts[_alertCursor % alerts.Count];
+        _alertCursor++;
+        _lastAlertJump = _world.Time;
+        CenterOn(a.Pos, smooth: true);
     }
 
     private int _frames;
@@ -325,6 +385,7 @@ public partial class Main : Node2D
                     case Key.Escape: _tool = Tool.Select; _selected.Clear(); break;
                     case Key.Tab: _overlay.ShowIntent = !_overlay.ShowIntent; break;
                     case Key.C: _hud.TogglePanel(); break;
+                    case Key.N: JumpToAlert(); break;
                     case Key.F8:
                         // デバッグ用: 霧を切り替える(自軍の視界がすべて見える状態になる)
                         _world.Vision[0].Enabled = !_world.Vision[0].Enabled;

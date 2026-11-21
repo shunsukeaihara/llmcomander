@@ -13,6 +13,11 @@ public partial class Hud : CanvasLayer
     public const int PanelWidth = 460;
     public event Action<int, bool>? PlanDecision;
     public event Action<string>? TextSubmitted;
+    /// <summary>作戦カードが押された(カードの種類: "op{作戦Id}" / "economy" / "reserve")。</summary>
+    public event Action<string>? CardPicked;
+    /// <summary>上部バーの警報が押された。</summary>
+    public event Action? AlertPicked;
+    private Button _alert = null!;
 
     private Label _resources = null!;
     private Label _clock = null!;
@@ -69,6 +74,11 @@ public partial class Hud : CanvasLayer
         topRow.AddChild(_resources);
         topRow.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
         _llmState = new Label { Modulate = Palette.Muted };
+        // 直近の警報。押すとその場所へ(N キーでも)
+        _alert = new Button { Flat = true, Visible = false, FocusMode = Control.FocusModeEnum.None };
+        _alert.AddThemeColorOverride("font_color", Palette.Alert);
+        _alert.Pressed += () => AlertPicked?.Invoke();
+        topRow.AddChild(_alert);
         topRow.AddChild(_llmState);
         _toggle = new Button { Text = "作戦パネルを閉じる (C)", Flat = true, FocusMode = Control.FocusModeEnum.None };
         _toggle.Pressed += TogglePanel;
@@ -235,12 +245,18 @@ public partial class Hud : CanvasLayer
             CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6, CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
             ContentMarginLeft = 10, ContentMarginRight = 10, ContentMarginTop = 8, ContentMarginBottom = 8,
         };
-        v.Panel = new PanelContainer();
+        v.Panel = new PanelContainer { MouseDefaultCursorShape = Control.CursorShape.PointingHand };
+        // カードを押すと、その作戦の場所へカメラを移す
+        v.Panel.GuiInput += e =>
+        {
+            if (e is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true }) CardPicked?.Invoke(key);
+        };
         v.Panel.AddThemeStyleboxOverride("panel", v.Style);
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 4);
         v.Panel.AddChild(box);
         v.Body = Rich("", 12);
+        v.Body.MouseFilter = Control.MouseFilterEnum.Pass; // 押したのをカードに伝える
         box.AddChild(v.Body);
         v.Extra = new VBoxContainer();
         box.AddChild(v.Extra);
@@ -272,6 +288,10 @@ public partial class Hud : CanvasLayer
     public void Refresh(World w, CommandCenter? cc, bool listening, string micNote)
     {
         var ts = w.Teams[0];
+        var recent = ts.Alerts.LastOrDefault();
+        bool showAlert = recent != null && w.Time - recent.Time < 30;
+        _alert.Visible = showAlert;
+        if (showAlert && _alert.Text != "⚠ " + recent!.Text + "(N)") _alert.Text = "⚠ " + recent.Text + "(N)";
         SetText(_resources, $"食 {(int)ts.Stock[Res.Food]}   木 {(int)ts.Stock[Res.Wood]}   金 {(int)ts.Stock[Res.Gold]}   人口 {w.Pop(0)}/{Defs.PopCap}");
         SetText(_clock, Context.Clock(w.Time));
         SetText(_llmState, cc == null ? "LLM未設定(.env に ANTHROPIC_API_KEY)" :
@@ -327,7 +347,7 @@ public partial class Hud : CanvasLayer
 
         var last = ts.History.LastOrDefault();
         SetText(_voiceState, listening ? "● 聞き取り中… (Space を離すと送信。話しながらクリックした地点は「指示点」になる)" :
-            "Space: 話す ・ Enter: 文字入力 ・ クリック: 中心へ/選択 ・ ドラッグ: 範囲選択 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ Tab: 表示切替 ・ C: 作戦パネル ・ F9: ログ" + micNote);
+            "Space: 話す ・ Enter: 文字入力 ・ クリック: 中心へ/選択 ・ ドラッグ: 範囲選択 ・ 1: 地点 ・ 2: 線 ・ 右クリック: 目印を消す ・ N: 警報へ ・ Tab: 表示切替 ・ C: 作戦パネル ・ F9: ログ" + micNote);
         _voiceState.Modulate = listening ? Palette.Warn : Palette.Muted;
         SetText(_voiceLast, last == null ? "" : $"「{last.Utterance}」 " + (last.Pending ? (last.Result != "" ? "→ " + last.Result + " …" : "→ 解釈中…") : "→ " + last.Result));
 
