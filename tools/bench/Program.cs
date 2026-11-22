@@ -23,7 +23,25 @@ var front = w.Teams[0].FindOp("戦線A")!;
 for (int i = 0; i < 20 * 90 && !w.Members(front).Any(u => w.Time - u.LastFoughtAt < 1); i++) w.Step();
 for (int i = 0; i < 20 * 3; i++) w.Step();
 
-string[] utterances = args.Length > 0 ? args : new[]
+// --flex: 遊んだログで通らなかった発話と、判断を担当に任せる発話。命令のあと、変わった作戦の担当も1回呼ぶ
+bool flex = args.Length > 0 && args[0] == "--flex";
+if (flex)
+{
+    w.Teams[0].Markers.Add(new Marker { Name = "指示点1", Points = { new Vector2(22, 58) } });
+    for (int i = 0; i < 6; i++) w.SpawnUnit(0, UnitKind.Spearman, new Vector2(20 + i % 3, 57 + i / 3)); // 予備の槍
+}
+string[] utterances = flex ? new[]
+{
+    "斥候は町の中心を中心に同心円状に探索してください。",
+    "東西援助に探索して",
+    "指示点1を待機位置にして。",
+    "指示点を少し真ん中側に移動。",
+    "今槍兵が待機している場所を指示点1にしてください。",
+    "*槍兵の待機位置はここ。",
+    "食料を15人、木を5人にして",
+    "戦線Aの槍で敵の弓をつついて、押されたら指示点1まで下がって",
+    "騎兵は北の丘を回ってから、敵の背後を突いて",
+} : args.Length > 0 ? args : new[]
 {
     "弓は引き撃ち、他は撤退",
     "騎兵は右から回り込んで敵の弓を狙え",
@@ -37,11 +55,20 @@ string[] utterances = args.Length > 0 ? args : new[]
 var applier = new Applier(w, 0);
 var times = new List<double>();
 var firsts = new List<double>();
-foreach (var u in utterances)
+foreach (var raw in utterances)
 {
+    // 先頭の * は「話しながら地図をクリックした」(クリックした点は指示点1になる)
+    string u = raw.TrimStart('*');
+    var uctx = new UtteranceContext();
+    if (raw.StartsWith("*"))
+    {
+        uctx.Clicks.Add(new Vector2(26, 52));
+        w.Teams[0].Markers.RemoveAll(m => m.Name.StartsWith("指示点"));
+        w.Teams[0].Markers.Add(new Marker { Name = "指示点1", Points = { new Vector2(26, 52) } });
+    }
     // ゲームと同じく、LLMに見せた建設候補地を命令の適用にも使う
     var sites = Context.Sites(w, 0);
-    var user = Context.Commander(w, 0, new UtteranceContext(), u, sites);
+    var user = Context.Commander(w, 0, uctx, u, sites);
     var req = new LlmRequest(settings.CommanderModel, settings.CommanderEffort, Tools.CommanderSystem, user, Tools.CommanderTools);
     var sw = Stopwatch.StartNew();
     double? first = null;
@@ -66,8 +93,42 @@ foreach (var u in utterances)
         Console.WriteLine($"  {c.Name} {JsonSerializer.Serialize(c.Input, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })}");
         Console.WriteLine($"    → {applier.Apply(c, u, Array.Empty<int>(), sites)}");
     }
+    if (flex)
+        foreach (var opName in reply.Calls.Where(c => c.Name == "update_operation").Select(c => c.Input.GetProperty("operation").GetString()).Distinct())
+        {
+            var op = w.Teams[0].FindOp(opName ?? "");
+            if (op == null || op.IsReserve || !w.Members(op).Any()) continue;
+            var oreq = new LlmRequest(settings.OfficerModel, settings.OfficerEffort, Tools.OfficerSystem,
+                Context.Officer(w, op, Array.Empty<string>()), Tools.OfficerTools, 1500);
+            var osw2 = Stopwatch.StartNew();
+            var orep = await llm.Call(oreq);
+            Console.WriteLine($"  [担当 {op.Name} {osw2.Elapsed.TotalSeconds:0.00}秒] 目的: {op.Goal}");
+            foreach (var c in orep.Calls)
+            {
+                var res = applier.ApplyOfficer(op, c);
+                Console.WriteLine($"    {c.Name} {JsonSerializer.Serialize(c.Input, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })}{(res != "" ? " → " + res : "")}");
+            }
+            foreach (var r in op.Roles) Console.WriteLine($"    = {r.Name}: {r.Describe()}");
+        }
     for (int i = 0; i < 20 * 2; i++) w.Step();
 }
+
+// --flex: 時間を進めながら戦線Aの担当を何回か呼び、目的に沿って規則を変えていくかを見る
+if (flex)
+    for (int round = 0; round < 5 && !front.Disbanded && w.Members(front).Any(); round++)
+    {
+        for (int i = 0; i < 20 * 4; i++) w.Step();
+        var oreq = new LlmRequest(settings.OfficerModel, settings.OfficerEffort, Tools.OfficerSystem,
+            Context.Officer(w, front, Array.Empty<string>()), Tools.OfficerTools, 1500);
+        var orep = await llm.Call(oreq);
+        Console.WriteLine($"\n--- {Context.Clock(w.Time)} 担当 {front.Name}");
+        foreach (var c in orep.Calls)
+        {
+            var res = applier.ApplyOfficer(front, c);
+            Console.WriteLine($"    {c.Name} {JsonSerializer.Serialize(c.Input, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })}{(res != "" ? " → " + res : "")}");
+        }
+        foreach (var r in front.Roles) Console.WriteLine($"    = {Context.RoleText(w, front, r)}");
+    }
 
 // 担当LLMを1回
 var officerReq = new LlmRequest(settings.OfficerModel, settings.OfficerEffort, Tools.OfficerSystem,

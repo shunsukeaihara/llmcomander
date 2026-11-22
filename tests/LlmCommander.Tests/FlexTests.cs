@@ -161,3 +161,60 @@ public class FlexTests
         llm.Gate.Release(5);
     }
 }
+
+public class EnemyPlaceTests
+{
+    [Fact]
+    public void EnemyAnchorFollowsTheEnemy()
+    {
+        var w = MapLayout.CreateValley();
+        for (int i = 0; i < 4; i++) w.SpawnUnit(0, UnitKind.Spearman, new Vector2(30, 46));
+        var enemy = w.SpawnUnit(1, UnitKind.Archer, new Vector2(34, 44));
+        w.UpdateVision();
+        var ap = new Applier(w, 0);
+        var r = ap.Apply(new ToolCall("update_operation", JsonDocument.Parse("""
+            {"operation": "追撃", "change_summary": "", "roles": [{"role": "槍", "unit_kind": "spearman", "stance": "advance", "place": "敵の弓の位置"}]}
+            """).RootElement.Clone()), "", Array.Empty<int>());
+        Assert.DoesNotContain("見つかりません", r);
+        var role = w.Teams[0].FindOp("追撃")!.FindRole("槍")!;
+        Assert.InRange(Vector2.Distance(role.Anchor.Center, enemy.Pos), 0, 1.5f);
+        enemy.Pos = new Vector2(30, 40);
+        for (int i = 0; i < 25; i++) w.Step();
+        Assert.InRange(Vector2.Distance(role.Anchor.Center, enemy.Pos), 0, 3f);
+        Assert.Equal(1, role.Anchor.Name.Count(ch => ch == '(')); // 追うたびに地名が重ならない
+        // 見えていない敵の兵種は場所にならない
+        Assert.Null(w.ResolvePlace(0, "敵の騎兵の位置"));
+    }
+
+    [Fact]
+    public void GatherTotalIsCappedByVillagers()
+    {
+        var w = MapLayout.CreateValley();
+        var ap = new Applier(w, 0);
+        ap.Apply(new ToolCall("set_economy", JsonDocument.Parse("""{"gather": {"food": 2, "wood": 2, "gold": 2}}""").RootElement.Clone()), "", Array.Empty<int>());
+        ap.Apply(new ToolCall("set_economy", JsonDocument.Parse("""{"gather": {"food": 4, "wood": 2}}""").RootElement.Clone()), "", Array.Empty<int>());
+        var g = w.Teams[0].Gather;
+        Assert.Equal(4, g[Res.Food]);
+        Assert.Equal(2, g[Res.Wood]);
+        Assert.Equal(0, g[Res.Gold]); // 村人6人なので、言われていない金を減らす
+    }
+}
+
+public class RouteTests
+{
+    [Fact]
+    public void RoleFollowsRouteAfterArriving()
+    {
+        var w = MapLayout.CreateValley();
+        for (int i = 0; i < 3; i++) w.SpawnUnit(0, UnitKind.Cavalry, new Vector2(26, 50));
+        new Applier(w, 0).Apply(new ToolCall("update_operation", JsonDocument.Parse("""
+            {"operation": "奇襲", "change_summary": "", "roles": [{"role": "騎兵", "unit_kind": "cavalry", "stance": "advance", "place": "北西の林", "route": ["北の丘", "北の金鉱"]}]}
+            """).RootElement.Clone()), "", Array.Empty<int>());
+        var role = w.Teams[0].FindOp("奇襲")!.FindRole("騎兵")!;
+        Assert.Contains("その後 北の丘 → 北の金鉱", role.Describe());
+        for (int i = 0; i < 20 * 90 && !(role.Arrived && role.Route.Count == 0); i++) w.Step();
+        Assert.Equal("北の金鉱", role.Anchor.Name);
+        Assert.True(role.Arrived);
+        Assert.Contains(w.Teams[0].FindOp("奇襲")!.Changes, c => c.Text.Contains("次に北の丘"));
+    }
+}

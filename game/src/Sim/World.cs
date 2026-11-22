@@ -162,13 +162,39 @@ public sealed partial class World
         return UnitsPlace(team, n, self);
     }
 
+    /// <summary>見えている敵の兵の集まりの位置(自分の作戦か自軍基地に一番近い集まり)。</summary>
+    private Place? EnemyPlace(int team, string n, string kindWord, Operation? self)
+    {
+        n = System.Text.RegularExpressions.Regex.Replace(n, @"([（(][^）)]*[）)])+$", "");
+        UnitKind? kind = null;
+        if (kindWord is not ("" or "兵" or "部隊" or "軍"))
+        {
+            if (!Defs.TryParseUnit(kindWord.TrimEnd('兵'), out var k) && !Defs.TryParseUnit(kindWord, out k)) return null;
+            kind = k;
+        }
+        var vis = Vision[team];
+        var enemies = Units.Values.Where(u => u.Team != team && u.Alive && !u.IsInside
+                                              && (kind == UnitKind.Villager ? u.Kind == UnitKind.Villager : u.Kind != UnitKind.Villager)
+                                              && (kind == null || u.Kind == kind) && (!vis.Enabled || vis.IsVisible(u.Pos))).ToList();
+        if (enemies.Count == 0) return null;
+        var mine = self != null ? Members(self).Where(u => !u.IsInside).Select(u => u.Pos).ToList() : new List<Vector2>();
+        var from = mine.Count > 0 ? new Vector2(mine.Average(p => p.X), mine.Average(p => p.Y)) : BasePos(team);
+        var nearest = enemies.OrderBy(u => Vector2.Distance(u.Pos, from)).First();
+        var cluster = enemies.Where(u => Vector2.Distance(u.Pos, nearest.Pos) < 6).ToList();
+        var c = new Vector2(cluster.Average(u => u.Pos.X), cluster.Average(u => u.Pos.Y));
+        return new Place($"{n}({Map.RegionName(c)})", new[] { Map.NearestPassable(c) });
+    }
+
     private Place? UnitsPlace(int team, string n, Operation? self)
     {
+        n = System.Text.RegularExpressions.Regex.Replace(n, @"([（(][^）)]*[）)])+$", "");
         var ts = Teams[team];
         string key = n;
         foreach (var suffix in new[] { "の現在地", "の位置", "のいる場所", "がいる場所", "の場所" })
             if (key.EndsWith(suffix)) { key = key[..^suffix.Length]; break; }
         IEnumerable<Unit>? units = null;
+        if (key == "敵" || key.StartsWith("敵の"))
+            return EnemyPlace(team, n, key == "敵" ? "" : key[2..], self);
         if (key is "現在地" or "今の位置" or "その場")
         {
             if (self == null) return null;
@@ -208,6 +234,21 @@ public sealed partial class World
         foreach (var suffix in new[] { "付近", "の近く", "周辺", "あたり", "辺り" })
             if (n.EndsWith(suffix)) n = n[..^suffix.Length];
         return n.Trim();
+    }
+
+    /// <summary>「敵の弓の位置」のような敵の位置を持ち場にした役割は、敵の動きに合わせて持ち場を動かす(見失ったら最後の位置のまま)。</summary>
+    private void TrackEnemyAnchors(TeamState ts)
+    {
+        foreach (var op in ts.ActiveOps)
+        foreach (var role in op.Roles)
+        {
+            if (!role.Anchor.Name.StartsWith("敵の") && !role.Anchor.Name.StartsWith("敵(")) continue;
+            if (role.Anchor.IsLine) continue;
+            var now = ResolvePlace(ts.Team, role.Anchor.Name, op);
+            if (now == null || now.IsLine) continue;
+            if (Vector2.Distance(now.Center, role.Anchor.Center) > 2) role.Arrived = false;
+            role.Anchor = now;
+        }
     }
 
     public Role? RoleOf(Unit u)
@@ -306,6 +347,8 @@ public sealed partial class World
             }
         if (_tick % 20 == 10)
             foreach (var t in Teams) PruneManualOps(t);
+        if (_tick % 20 == 15)
+            foreach (var t in Teams) TrackEnemyAnchors(t);
         Profiler.End("条件", p);
 
         p = Profiler.Begin();

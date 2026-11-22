@@ -32,7 +32,8 @@ public static class PlaceExpr
         if (t == "") return null;
         if (w.ResolveBasePlace(team, t, self) is { } basic) return basic;
         // 前に解決した場所の名前には「(地名)」が付いている。外して読み直す
-        t = Regex.Replace(t, @"[（(][^）)]*[）)]$", "");
+        t = Regex.Replace(t, @"([（(][^）)]*[）)])+$", "");
+        text = t;
         if (w.ResolveBasePlace(team, t, self) is { } basic2) return basic2;
 
         var m = Between.Match(t);

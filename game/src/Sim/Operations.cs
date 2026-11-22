@@ -39,8 +39,10 @@ public sealed class RulePatch
     public Formation? Formation;
     public float? Radius;
     public bool? Evade;
+    /// <summary>持ち場に着いたあと、順に向かう場所(場所の書き方のまま。着くたびに解決する)。</summary>
+    public List<string>? Route;
 
-    public bool IsEmpty => Stance is null && Anchor is null && Priority is null && Kite is null && Formation is null &&
+    public bool IsEmpty => Route is null && Stance is null && Anchor is null && Priority is null && Kite is null && Formation is null &&
                            Radius is null && Evade is null;
 }
 
@@ -77,6 +79,8 @@ public sealed class Role
     /// <summary>今の行き先に全員が着いたか(行き先が変わると false に戻る)。</summary>
     public bool Arrived;
     public double ArrivedAt;
+    /// <summary>持ち場に着いたあと順に向かう場所(場所の書き方のまま)。</summary>
+    public List<string> Route = new();
 
     /// <summary>直前の更新で置き換えられた内容(取り消し線で見せる)。</summary>
     public string Superseded = "";
@@ -105,6 +109,7 @@ public sealed class Role
                 _ => "",
             },
         };
+        if (Route.Count > 0) parts.Add("その後 " + string.Join(" → ", Route));
         if (Kite) parts.Add("引き撃ち");
         if (Evade && Stance != Stance.Patrol) parts.Add("交戦せず逃げる");
         if (Priority.Count > 0) parts.Add("優先: " + string.Join("・", Priority.Select(Defs.Ja)));
@@ -130,7 +135,9 @@ public sealed class Role
         if (p.Evade is { } e && e != Evade) old.Add(Evade ? "交戦せず逃げる" : "交戦する");
         if (p.Radius is { } rad && rad != Radius && p.Stance is null) old.Add(Radius is { } r0 ? $"半径{r0:0}" : "半径なし");
 
+        if (p.Route is { } rt && !rt.SequenceEqual(Route)) old.Add(Route.Count > 0 ? "その後 " + string.Join(" → ", Route) : "経路なし");
         if (p.Anchor is { } na && na.Center != Anchor.Center) Arrived = false;
+        if (p.Route is { } rt2) { Route = rt2.ToList(); if (rt2.Count > 0) Arrived = false; }
         if (p.Stance is { } s2) Stance = s2;
         if (p.Radius is { } r2) Radius = r2;
         if (p.Evade is { } e2) Evade = e2;
@@ -174,6 +181,8 @@ public sealed class Operation
     public int IntentVersion;
     /// <summary>担当LLMの直前の命令で通らなかったこと(次の呼び出しで伝える)。</summary>
     public string OfficerProblems = "";
+    /// <summary>担当が前回点検した目的の手順と進み具合。</summary>
+    public string Steps = "";
     /// <summary>担当LLMが書く状況の要約。</summary>
     public string Status = "";
     public double StatusAt = -999;

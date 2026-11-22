@@ -202,12 +202,29 @@ public sealed partial class World
                 if (role.Arrived || role.Stance is not (Stance.Hold or Stance.Advance)) continue;
                 var members = Members(op, role).ToList();
                 if (members.Count == 0) continue;
-                if (members.All(u => role.Anchor.Distance(u.Pos) < 3f))
+                // 遅れた数体を待たない(8割が着けば到着)
+                // 進撃の隊形は持ち場の周りに広がるので、人数に応じて少し広めに見る
+                float near = MathF.Max(3.5f, MathF.Sqrt(members.Count) * 1.3f);
+                if (members.Count(u => role.Anchor.Distance(u.Pos) < near) >= Math.Max(1, (int)(members.Count * 0.8f)))
                 {
-                    role.Arrived = true;
-                    role.ArrivedAt = Time;
                     op.Log(Time, $"到着: {role.Name}が{role.Anchor.Name}に着いた");
                     op.Eventful = true;
+                    // 経路の続きがあれば次の場所へ(敵の位置などは、この時点の状況で決める)。なければ到着
+                    bool moved = false;
+                    while (role.Route.Count > 0 && !moved)
+                    {
+                        string next = role.Route[0];
+                        role.Route.RemoveAt(0);
+                        if (ResolvePlace(ts.Team, next, op) is not { } place) { op.Log(Time, $"経路の「{next}」が見つからないので飛ばす"); continue; }
+                        role.Anchor = place;
+                        moved = true;
+                        op.Log(Time, $"経路: {role.Name}は次に{place.Name}へ");
+                    }
+                    if (!moved)
+                    {
+                        role.Arrived = true;
+                        role.ArrivedAt = Time;
+                    }
                 }
             }
         }

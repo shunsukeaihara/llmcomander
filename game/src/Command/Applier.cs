@@ -70,6 +70,8 @@ public sealed class Applier
             case "line": p.Formation = Formation.Line; break;
             case "cluster": p.Formation = Formation.Cluster; break;
         }
+        if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty("route", out var rt) && rt.ValueKind == JsonValueKind.Array)
+            p.Route = rt.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!.Trim()).Where(x => x != "").ToList();
         p.Kite = Bool(e, "kite");
         p.Evade = Bool(e, "evade");
         if (Num(e, "radius") is { } rad) p.Radius = Math.Clamp(rad, 3, 60);
@@ -216,6 +218,8 @@ public sealed class Applier
                 tr.Kind = ConditionKind.RoleHpBelow;
                 tr.Role = Str(te, "role") ?? "";
                 tr.Fraction = Num(te, "fraction") ?? 0.5f;
+                // 1 以上だと最初の1体で発動してしまう。「押されたら」の意図に近い値に直す
+                if (tr.Fraction >= 0.95f) tr.Fraction = 0.6f;
                 break;
             default:
                 problems.Add("条件の種類が不明です");
@@ -271,9 +275,22 @@ public sealed class Applier
             // 割り当てを決め直すので、直接指示で待機させていた村人も仕事に戻す
             foreach (var v in _w.TeamUnits(_team).Where(v => v.Kind == UnitKind.Villager)) v.ManualTarget = null;
             int villagers = _w.TeamUnits(_team).Count(u => u.Kind == UnitKind.Villager);
+            var said = new HashSet<Res>();
             foreach (Res r in Enum.GetValues<Res>())
                 if (Int(g, Defs.Key(r)) is { } n)
+                {
                     T.Gather[r] = Math.Max(0, n);
+                    said.Add(r);
+                }
+            // 合計が村人の数を超えたら、言われていない資源から減らす(「食15、木5」なら金を減らす)
+            int over = T.Gather.Values.Sum() - villagers;
+            foreach (var r in Enum.GetValues<Res>().Where(r => !said.Contains(r)).OrderBy(r => T.Gather[r]))
+            {
+                if (over <= 0) break;
+                int cut = Math.Min(over, T.Gather[r]);
+                T.Gather[r] -= cut;
+                over -= cut;
+            }
             int total = T.Gather.Values.Sum();
             parts.Add("割り当て " + string.Join(" ", Enum.GetValues<Res>().Select(r => $"{Defs.Ja(r)}{T.Gather[r]}")) +
                       (total > villagers ? $"(村人{villagers}人に対して{total}人分)" : ""));
@@ -607,6 +624,7 @@ public sealed class Applier
         {
             case "report":
                 op.Status = Str(call.Input, "status") ?? op.Status;
+                op.Steps = Str(call.Input, "steps") ?? op.Steps;
                 op.StatusAt = _w.Time;
                 T.Version++;
                 return "";

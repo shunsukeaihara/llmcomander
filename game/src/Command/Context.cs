@@ -252,7 +252,8 @@ public static class Context
 
         if (events.Count > 0) sb.AppendLine("\n## 前回からの出来事\n" + string.Join("\n", events.Select(e => "- " + e)));
         if (op.OfficerProblems != "") sb.AppendLine($"\n前回のあなたの命令で通らなかったこと: {op.OfficerProblems}");
-        if (op.Status != "") sb.AppendLine($"\n前回のあなたの報告: {op.Status}");
+        if (op.Steps != "") sb.AppendLine($"\n前回のあなたの点検: {op.Steps}");
+        if (op.Status != "") sb.AppendLine($"前回のあなたの報告: {op.Status}");
         return sb.ToString();
     }
 
