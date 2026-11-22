@@ -125,7 +125,7 @@ public partial class OverlayView : Node2D
                 {
                     int n = all.Count(u => u.Role == role.Name);
                     if (n == 0) continue;
-                    lines.Add(($"{role.Name}×{n}  {role.Describe()}{(role.Trigger != null ? "  [条件待ち]" : "")}", new Color(0.77f, 0.82f, 0.86f), false));
+                    lines.Add(($"{role.Name}×{n}  {(op.IsScouting ? role.DescribeScouting() : role.Describe())}{(role.Trigger != null ? "  [条件待ち]" : "")}", new Color(0.77f, 0.82f, 0.86f), false));
                     if (role.Superseded != "" && w.Time - role.ChangedAt < 20)
                         lines.Add(($"    {role.Superseded}", Palette.Muted, true));
                 }

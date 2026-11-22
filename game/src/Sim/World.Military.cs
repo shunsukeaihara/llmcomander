@@ -85,8 +85,8 @@ public sealed partial class World
         var stance = role?.Stance ?? Stance.Hold;
         var anchor = role?.Anchor.Center ?? slot;
 
-        // 戦わない役割(探索・巡回は常に): 敵兵が近いか攻撃されたら逃げる
-        bool evade = role is { Evade: true } || stance is Stance.Explore or Stance.Patrol;
+        // 戦わない役割(巡回は常に): 敵兵が近いか攻撃されたら逃げる
+        bool evade = role is { Evade: true } || stance == Stance.Patrol;
         if (evade && Flee(u)) return;
         // 指名された敵兵がいれば、見えている限り追いかけて攻撃する
         if (role is { FocusTarget: > 0 } && !evade)
@@ -97,11 +97,6 @@ public sealed partial class World
                 return;
             }
             role.FocusTarget = 0; // 倒したか見失った。あとは目的地の周りの敵を探す
-        }
-        if (stance == Stance.Explore)
-        {
-            Explore(u, role!);
-            return;
         }
         if (stance == Stance.Patrol)
         {
@@ -147,7 +142,7 @@ public sealed partial class World
         else MoveTo(u, slot, 0.2f);
     }
 
-    // ------------------------------------------------------------ 探索(斥候)
+    // ------------------------------------------------------------ 偵察(逃げる・巡回)
 
     /// <summary>
     /// 場所を中心に、内側の輪から順に未探索の場所を回る。戦わず、敵兵が近づいたら距離を取る。
@@ -192,46 +187,31 @@ public sealed partial class World
         MoveTo(u, u.ExploreGoal.Value, 1f);
     }
 
-    private void Explore(Unit u, Role role)
-    {
-        bool reached = u.ExploreGoal is { } g && Vector2.Distance(u.Pos, g) < 1.5f;
-        bool seen = u.ExploreGoal is { } g2 && Vision[u.Team].IsExplored((int)g2.X, (int)g2.Y);
-        if (u.ExploreGoal == null || reached || seen || Time - u.ExploreAt > 20)
-        {
-            u.ExploreGoal = NextExploreGoal(u, role.Anchor.Center, role.Radius);
-            u.ExploreAt = (float)Time;
-        }
-        if (u.ExploreGoal is { } goal) MoveTo(u, goal, 1f);
-        else MoveTo(u, role.Anchor.Center, 1f); // 探索し尽くしたら中心で待つ
-    }
-
-    /// <summary>中心から近い輪から順に、未探索の地点のうち今の位置に一番近いものを選ぶ。</summary>
-    private Vector2? NextExploreGoal(Unit u, Vector2 center, float? maxRadius)
-    {
-        var vis = Vision[u.Team];
-        float limit = maxRadius ?? Map.W * 1.5f;
-        for (float r = 6; r <= limit; r += 4)
-        {
-            int samples = Math.Max(12, (int)(r * 1.2f));
-            Vector2? best = null;
-            float bestD = float.MaxValue;
-            for (int i = 0; i < samples; i++)
-            {
-                float a = i * MathF.Tau / samples;
-                var p = center + new Vector2(MathF.Cos(a), MathF.Sin(a)) * r;
-                if (p.X < 1 || p.Y < 1 || p.X > Map.W - 1 || p.Y > Map.H - 1) continue;
-                if (vis.IsExplored((int)p.X, (int)p.Y)) continue;
-                var q = Map.NearestPassable(p, 4);
-                if (!Map.Passable(q)) continue;
-                float d = Vector2.Distance(q, u.Pos);
-                if (d < bestD) { bestD = d; best = q; }
-            }
-            if (best != null) return best;
-        }
-        return null;
-    }
-
     // ------------------------------------------------------------ 条件付きの動き
+
+    /// <summary>
+    /// 役割の全員が行き先に着いたら、作戦の出来事として記録し、担当LLMを早めに呼ぶ(偵察で次の行き先を決めるため)。
+    /// </summary>
+    private void CheckArrivals(TeamState ts)
+    {
+        foreach (var op in ts.ActiveOps)
+        {
+            if (op.IsEconomy || op.IsReserve) continue;
+            foreach (var role in op.Roles)
+            {
+                if (role.Arrived || role.Stance is not (Stance.Hold or Stance.Advance)) continue;
+                var members = Members(op, role).ToList();
+                if (members.Count == 0) continue;
+                if (members.All(u => role.Anchor.Distance(u.Pos) < 3f))
+                {
+                    role.Arrived = true;
+                    role.ArrivedAt = Time;
+                    op.Log(Time, $"到着: {role.Name}が{role.Anchor.Name}に着いた");
+                    op.Eventful = true;
+                }
+            }
+        }
+    }
 
     private void CheckTriggers(TeamState ts)
     {

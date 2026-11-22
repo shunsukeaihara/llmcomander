@@ -6,10 +6,9 @@ using System.Numerics;
 namespace LlmCommander.Sim;
 
 /// <summary>
-/// Explore: 場所を中心に、内側の輪から順に未探索の場所を回る(斥候向け)。
 /// Patrol: 場所の周りを、決めた半径で回り続ける(遠巻きの偵察など)。
 /// </summary>
-public enum Stance { Hold, Advance, Retreat, Explore, Patrol }
+public enum Stance { Hold, Advance, Retreat, Patrol }
 
 public enum Formation { Cluster, Line }
 
@@ -69,12 +68,15 @@ public sealed class Role
     public bool Kite;
     public Formation Formation = Formation.Cluster;
     public Trigger? Trigger;
-    /// <summary>探索の範囲・巡回の半径(タイル)。null なら既定。</summary>
+    /// <summary>巡回の半径(タイル)。null なら既定。</summary>
     public float? Radius;
     /// <summary>戦わない: 敵兵が近づいたり攻撃されたりしたら逃げる。</summary>
     public bool Evade;
     /// <summary>この敵兵を狙い続ける(右クリックで敵兵を指したとき)。倒すか見失うまで追う。</summary>
     public int FocusTarget;
+    /// <summary>今の行き先に全員が着いたか(行き先が変わると false に戻る)。</summary>
+    public bool Arrived;
+    public double ArrivedAt;
 
     /// <summary>直前の更新で置き換えられた内容(取り消し線で見せる)。</summary>
     public string Superseded = "";
@@ -87,6 +89,9 @@ public sealed class Role
         Anchor = anchor;
     }
 
+    /// <summary>偵察任務の役割の説明: 行き先と、移動中か到着済みか。</summary>
+    public string DescribeScouting() => $"行き先: {Anchor.Name}({(Arrived ? "到着、次を検討中" : "移動中")})・交戦せず逃げる";
+
     public string Describe()
     {
         var parts = new List<string>
@@ -96,13 +101,12 @@ public sealed class Role
                 Stance.Hold => $"{Anchor.Name}で{(Formation == Formation.Line ? "横隊で" : "")}待機・迎撃",
                 Stance.Advance => $"{Anchor.Name}へ進撃",
                 Stance.Retreat => $"撤退 → {Anchor.Name}",
-                Stance.Explore => $"{Anchor.Name}を中心に{(Radius is { } r ? $"半径{r:0}まで" : "")}探索",
                 Stance.Patrol => $"{Anchor.Name}の周りを半径{Radius ?? 10:0}で巡回",
                 _ => "",
             },
         };
         if (Kite) parts.Add("引き撃ち");
-        if (Evade && Stance is not (Stance.Explore or Stance.Patrol)) parts.Add("交戦せず逃げる");
+        if (Evade && Stance != Stance.Patrol) parts.Add("交戦せず逃げる");
         if (Priority.Count > 0) parts.Add("優先: " + string.Join("・", Priority.Select(Defs.Ja)));
         return string.Join(" ・ ", parts);
     }
@@ -116,7 +120,6 @@ public sealed class Role
             {
                 Stance.Hold => $"{Anchor.Name}で待機",
                 Stance.Advance => $"{Anchor.Name}へ進撃",
-                Stance.Explore => $"{Anchor.Name}を中心に探索",
                 Stance.Patrol => $"{Anchor.Name}の周りを巡回",
                 _ => $"撤退 → {Anchor.Name}",
             });
@@ -127,6 +130,7 @@ public sealed class Role
         if (p.Evade is { } e && e != Evade) old.Add(Evade ? "交戦せず逃げる" : "交戦する");
         if (p.Radius is { } rad && rad != Radius && p.Stance is null) old.Add(Radius is { } r0 ? $"半径{r0:0}" : "半径なし");
 
+        if (p.Anchor is { } na && na.Center != Anchor.Center) Arrived = false;
         if (p.Stance is { } s2) Stance = s2;
         if (p.Radius is { } r2) Radius = r2;
         if (p.Evade is { } e2) Evade = e2;
@@ -153,6 +157,11 @@ public sealed class Operation
     public bool IsReserve;
     /// <summary>右クリックの直接指示でできた作戦(担当LLMは付けない。兵がいなくなったら消える)。</summary>
     public bool IsManual;
+    /// <summary>偵察任務。行き先は偵察の担当LLMが決める(遅ければゲームが自動で決める)。</summary>
+    public bool IsScouting;
+    /// <summary>偵察任務の目的(プレイヤーの言葉)と、探索の中心。</summary>
+    public string ScoutObjective = "";
+    public System.Numerics.Vector2 ScoutCenter;
     public readonly List<Role> Roles = new();
     public readonly List<OpChange> Changes = new();
     /// <summary>プレイヤーがこの作戦に対して言ったこと(担当LLMが意図を汲むため)。</summary>

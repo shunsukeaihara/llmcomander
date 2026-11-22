@@ -130,7 +130,7 @@ public static class Context
             sb.AppendLine($"{Defs.Ja(g.Key)}:");
             foreach (var (name, c) in g)
                 sb.AppendLine($"- {name}: {c.Region}付近({c.Note})。金まで{c.ToGold:0}、木まで{c.ToWood:0}、食まで{c.ToFood:0}。" +
-                              $"自軍基地から{c.FromOwnBase:0}、敵基地から{c.FromEnemyBase:0}。" +
+                              $"自軍基地から{c.FromOwnBase:0}" + (c.FromEnemyBase is { } fe ? $"、敵基地から{fe:0}。" : "。") +
                               (c.EnemiesSeenNearby > 0 ? $"近くで敵兵{c.EnemiesSeenNearby}体を目撃" : "敵の目撃なし"));
         }
         return sb.ToString();
@@ -151,12 +151,20 @@ public static class Context
             var members = w.Members(op).ToList();
             if (op.IsReserve && members.Count == 0) { sb.AppendLine("- 予備: なし"); continue; }
             sb.AppendLine($"- {op.Name}({w.OpTag(op)}){(op.Status != "" ? " 状況: " + op.Status : "")}");
+            if (op.IsScouting)
+            {
+                sb.AppendLine($"  - 偵察任務。目的: {op.ScoutObjective}。斥候{members.Count}騎、{op.Roles.FirstOrDefault()?.DescribeScouting()}");
+                continue;
+            }
             foreach (var r in op.Roles.Where(r => !op.IsReserve || w.Members(op, r).Any()))
                 sb.AppendLine("  - " + RoleText(w, op, r));
         }
 
         sb.AppendLine("\n## 場所");
-        sb.AppendLine("地名: " + string.Join("、", w.Map.Regions.Select(r => r.Name)) + "、自軍基地(own_base)、敵基地(enemy_base)、集合地点(rally)");
+        var knownEnemy = w.KnownEnemyBase(team);
+        sb.AppendLine("地名: " + string.Join("、", w.Map.Regions.Select(r => r.Name)) + "、自軍基地(own_base)、集合地点(rally)" +
+                      (knownEnemy is { } ke ? $"、敵基地(enemy_base、{w.Map.RegionName(ke)}付近)" : ""));
+        if (knownEnemy == null) sb.AppendLine("敵の本拠地: まだ見つけていない(enemy_base は使えない)");
         if (ts.Markers.Count > 0)
         {
             sb.AppendLine("プレイヤーの目印:");

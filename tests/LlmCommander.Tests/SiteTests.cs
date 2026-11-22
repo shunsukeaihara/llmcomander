@@ -14,13 +14,18 @@ public class SiteTests
     public void CandidatesAreListedAndUsedForProposals()
     {
         var w = MapLayout.CreateValley();
+        // 北の金鉱を見ておく(見ていない資源は候補にならない)
+        var watcher = w.SpawnUnit(0, UnitKind.Scout, new Vector2(29, 29));
+        w.UpdateVision();
+        watcher.Hp = 0;
+        w.Step();
         var sites = Context.Sites(w, 0);
         string text = Context.SitesText(sites);
         _out.WriteLine(text);
 
         var tcs = sites.Where(kv => kv.Value.Kind == BuildingKind.TownCenter).ToList();
         var barracks = sites.Where(kv => kv.Value.Kind == BuildingKind.Barracks).ToList();
-        Assert.InRange(tcs.Count, 3, 5);
+        Assert.InRange(tcs.Count, 1, 5);
         Assert.InRange(barracks.Count, 2, 4);
         // 自軍の基地の金鉱の横には村の中心の候補を出さない(既に村の中心がある)
         Assert.DoesNotContain(tcs, kv => Vector2.Distance(kv.Value.Center, w.BasePos(0)) < 12);
@@ -61,11 +66,23 @@ public class SiteTests
 public class SiteFilterTests
 {
     [Fact]
-    public void NoTownCenterCandidatesNextToTheEnemyBase()
+    public void UnseenResourcesAndTheUnknownEnemyBaseAreNotUsed()
     {
         var w = MapLayout.CreateValley();
-        var tcs = Context.Sites(w, 0).Values.Where(c => c.Kind == BuildingKind.TownCenter);
-        Assert.All(tcs, c => Assert.True(c.FromEnemyBase > 15, $"{c.Region} は敵基地から {c.FromEnemyBase}"));
+        // 試合開始時は、まだ見ていない金鉱を候補にしない。敵基地は不明なので距離も出さない
+        var tcs = Context.Sites(w, 0).Values.Where(c => c.Kind == BuildingKind.TownCenter).ToList();
+        Assert.All(tcs, c => Assert.True(w.Vision[0].IsExplored((int)c.Center.X, (int)c.Center.Y) || c.Region.Contains("西")));
+        Assert.All(Context.Sites(w, 0).Values, c => Assert.Null(c.FromEnemyBase));
+        Assert.Null(w.ResolvePlace(0, "enemy_base"));
+        Assert.Contains("まだ見つけていない", Context.Commander(w, 0, new UtteranceContext(), "敵はどこ?"));
+
+        // 敵の村の中心を見たら、敵基地として使えるようになる
+        var scout = w.SpawnUnit(0, UnitKind.Scout, new Vector2(61, 21));
+        w.UpdateVision();
+        Assert.NotNull(w.ResolvePlace(0, "enemy_base"));
+        // 敵の基地のそばの資源は、村の中心の候補にしない
+        var after = Context.Sites(w, 0).Values.Where(c => c.Kind == BuildingKind.TownCenter);
+        Assert.All(after, c => Assert.True(c.FromEnemyBase is null or > 15, $"{c.Region} は敵基地から {c.FromEnemyBase}"));
     }
 }
 

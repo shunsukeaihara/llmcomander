@@ -16,7 +16,7 @@ public sealed record SiteCandidate(
     float ToWood,
     float ToFood,
     float FromOwnBase,
-    float FromEnemyBase,
+    float? FromEnemyBase,
     int EnemiesSeenNearby)
 {
     public Vector2 Center => new(TileX + Defs.Buildings[Kind].Size / 2f, TileY + Defs.Buildings[Kind].Size / 2f);
@@ -36,8 +36,11 @@ public sealed partial class World
             var tcs = TeamBuildings(team).Where(b => b.Kind == BuildingKind.TownCenter).Select(b => b.Pos).ToList();
             foreach (var (center, res) in ResourceClusters())
             {
+                // まだ見ていない資源のことは知らない
+                if (!Vision[team].IsExplored((int)center.X, (int)center.Y)) continue;
                 if (tcs.Any(t => Vector2.Distance(t, center) < 15)) continue;
-                if (Vector2.Distance(center, BasePos(1 - team)) < 15) continue; // 敵の基地の資源は候補にしない
+                // 見つけた敵の建物のそばの資源は候補にしない(見ていない敵の基地のことは知らない)
+                if (Vision[team].Buildings.Values.Any(b => Vector2.Distance(center, new Vector2(b.TileX + 1.5f, b.TileY + 1.5f)) < 15)) continue;
                 var toward = Vector2.Normalize(home - center + new Vector2(0.001f, 0));
                 points.Add((center + toward * 4.5f, $"{Defs.Ja(res)}の資源のそば"));
             }
@@ -63,7 +66,7 @@ public sealed partial class World
             int enemies = Vision[team].LastSeen.Values.Count(s => s.Kind != UnitKind.Villager && Vector2.Distance(s.Pos, c) < 12);
             result.Add(new SiteCandidate(kind, site.Value.X, site.Value.Y, Map.RegionName(c), note,
                 NearestNode(Res.Gold, c), NearestTree(c), NearestNode(Res.Food, c),
-                Vector2.Distance(c, home), Vector2.Distance(c, BasePos(1 - team)), enemies));
+                Vector2.Distance(c, home), KnownEnemyBase(team) is { } eb ? Vector2.Distance(c, eb) : null, enemies));
         }
         return result.OrderBy(r => r.FromOwnBase).Take(kind == BuildingKind.TownCenter ? 5 : 4).ToList();
     }

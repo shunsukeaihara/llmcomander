@@ -58,7 +58,6 @@ public sealed class Applier
             case "hold": p.Stance = Stance.Hold; break;
             case "advance": p.Stance = Stance.Advance; break;
             case "retreat": p.Stance = Stance.Retreat; break;
-            case "explore": p.Stance = Stance.Explore; break;
             case "patrol": p.Stance = Stance.Patrol; break;
         }
         if (Str(e, "place") is { } pn)
@@ -99,6 +98,7 @@ public sealed class Applier
                 "confirm_build" => Confirm(call.Input, true),
                 "cancel_build" => Confirm(call.Input, false),
                 "garrison" => Garrison(call.Input),
+                "scout" => Scout(call.Input, utterance, selected),
                 // 中身のない返答は無視する(命令に添えて空の reply が付いてくることがある)
                 "reply" => string.IsNullOrWhiteSpace(Str(call.Input, "text")) ? "" : "返答: " + Str(call.Input, "text"),
                 _ => $"不明な命令 {call.Name}",
@@ -369,6 +369,73 @@ public sealed class Applier
         foreach (var p in plans) p.Status = ok ? PlanStatus.Confirmed : PlanStatus.Cancelled;
         T.Version++;
         return (ok ? "建設を確定: " : "建設を取り消し: ") + string.Join("、", plans.Select(p => $"{Defs.Ja(p.Kind)}#{p.Id}"));
+    }
+
+    private string Scout(JsonElement input, string utterance, IReadOnlyList<int> selected)
+    {
+        if (!Defs.TryParseUnit(Str(input, "unit_kind") ?? "scout", out var kind)) kind = UnitKind.Scout;
+        int count = Math.Max(1, Int(input, "count") ?? 1);
+        string from = Str(input, "assign_from") ?? (selected.Count > 0 ? "selected" : "reserve");
+        IEnumerable<Unit> pool = from switch
+        {
+            "selected" => selected.Select(id => _w.Units.GetValueOrDefault(id)).Where(u => u is { Alive: true } && u.Team == _team).Cast<Unit>(),
+            "reserve" => _w.Members(T.Reserve),
+            _ => T.FindOp(from) is { } src && !src.IsEconomy ? _w.Members(src) : _w.TeamUnits(_team).Where(u => u.Kind != UnitKind.Villager),
+        };
+        var units = pool.Where(u => u.Kind == kind).ToList();
+        // 予備にいなければ、ほかの作戦からでも探す(斥候は偵察のための兵なので)
+        if (units.Count == 0 && from == "reserve")
+            units = _w.TeamUnits(_team).Where(u => u.Kind == kind && !(T.Ops.FirstOrDefault(o => o.Id == u.OpId)?.IsScouting ?? false)).ToList();
+        units = units.Take(count).ToList();
+        var center = PlaceOf(Str(input, "center") ?? "own_base")?.Center ?? _w.BasePos(_team);
+        string objectiveText = Str(input, "objective") ?? utterance;
+        if (units.Count == 0)
+        {
+            // 空いている斥候がいなければ、動いている偵察任務の目的を切り替える(普通はそれが意図)
+            var current = T.ActiveOps.Where(o => o.IsScouting && _w.Members(o).Any()).OrderByDescending(o => o.CreatedAt).FirstOrDefault();
+            if (current == null) return $"偵察に使える{Defs.Ja(kind)}がいません(兵舎で作れます)";
+            current.ScoutObjective = objectiveText;
+            current.ScoutCenter = center;
+            current.Intents.Add(utterance);
+            current.Eventful = true; // 担当にすぐ考え直させる
+            current.Log(_w.Time, $"「{utterance}」→ 目的を変更");
+            T.Version++;
+            return $"偵察の目的を変更: {current.Name}(目的: {objectiveText})";
+        }
+        string name = (Str(input, "name") ?? "偵察").Trim();
+        if (T.FindOp(name) != null) name += $"{T.Ops.Count(o => o.IsScouting) + 1}";
+        string objective = objectiveText;
+        var op = _w.StartScouting(_team, name, objective, center, units);
+        op.Intents.Add(utterance);
+        op.Log(_w.Time, $"「{utterance}」→ 偵察開始");
+        return $"偵察開始: {name}({Defs.Ja(kind)}{units.Count}、目的: {objective})";
+    }
+
+    /// <summary>偵察の担当LLMの命令。frontier は担当に見せた未探索点(名前 → 場所)。</summary>
+    public string ApplyScout(Operation op, ToolCall call, IReadOnlyDictionary<string, Place> frontier)
+    {
+        switch (call.Name)
+        {
+            case "report":
+                op.Status = Str(call.Input, "status") ?? op.Status;
+                op.StatusAt = _w.Time;
+                T.Version++;
+                return "";
+            case "set_waypoint":
+            {
+                string name = (Str(call.Input, "place") ?? "").Trim();
+                var place = frontier.TryGetValue(name, out var f) ? f : PlaceOf(name);
+                var role = op.Roles.FirstOrDefault();
+                if (place == null || role == null) return "";
+                if (place.Center == role.Anchor.Center) return "";
+                role.Apply(new RulePatch { Anchor = place }, _w.Time);
+                role.Superseded = "";
+                op.Log(_w.Time, $"次の行き先: {place.Name}({Str(call.Input, "reason") ?? ""})");
+                T.Version++;
+                return "";
+            }
+        }
+        return "";
     }
 
     private string Garrison(JsonElement input)

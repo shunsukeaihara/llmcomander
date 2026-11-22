@@ -234,11 +234,64 @@ public sealed class CommandCenter
         foreach (var op in T.ActiveOps)
         {
             if (op.IsEconomy || op.IsReserve || op.IsManual || op.OfficerBusy) continue;
+            if (op.IsScouting)
+            {
+                // 偵察任務: 着いたら(出来事があれば)すぐ、なければ数秒ごとに次の行き先を考える
+                bool scoutDue = _w.Time >= op.OfficerDue || op.Eventful;
+                if (scoutDue && _w.Members(op).Any()) RunScout(op);
+                continue;
+            }
             if (!_w.Members(op).Any()) continue;
             bool due = _w.Time >= op.OfficerDue || (op.Eventful && _w.Time >= op.OfficerDue - Settings.OfficerInterval + Settings.OfficerMinInterval);
             if (!due) continue;
             RunOfficer(op);
         }
+    }
+
+    private void RunScout(Operation op)
+    {
+        op.OfficerBusy = true;
+        op.Eventful = false;
+        op.OfficerDue = _w.Time + Settings.OfficerInterval;
+        var members = _w.Members(op).ToList();
+        var pos = new System.Numerics.Vector2(members.Average(u => u.Pos.X), members.Average(u => u.Pos.Y));
+        var frontier = Scouting.Frontier(_w, _team, pos);
+        string user = Scouting.Prompt(_w, op, pos, frontier, CollectEvents(op));
+        var req = new LlmRequest(Settings.OfficerModel, Settings.OfficerEffort, Tools.ScoutSystem, user, Tools.ScoutTools, 1500);
+        Interlocked.Increment(ref InFlight);
+        Task.Run(async () =>
+        {
+            LlmReply reply;
+            try
+            {
+                reply = await _llm.Call(req);
+            }
+            catch (Exception ex)
+            {
+                reply = new LlmReply(Array.Empty<ToolCall>(), "", 0, ex.Message);
+            }
+            _main.Enqueue(() =>
+            {
+                Interlocked.Decrement(ref InFlight);
+                op.OfficerBusy = false;
+                Log?.Write("scout", new
+                {
+                    op = op.Name,
+                    seconds = Math.Round(reply.Seconds, 3),
+                    model = req.Model,
+                    prompt = user,
+                    calls = reply.Calls.Select(c => new { name = c.Name, input = c.Input }),
+                    error = reply.Error,
+                });
+                if (reply.Error != null)
+                {
+                    LastError = reply.Error;
+                    return;
+                }
+                if (op.Disbanded) return;
+                foreach (var c in reply.Calls) _applier.ApplyScout(op, c, frontier);
+            });
+        });
     }
 
     private List<string> CollectEvents(Operation op)

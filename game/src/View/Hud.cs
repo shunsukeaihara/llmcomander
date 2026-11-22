@@ -372,9 +372,15 @@ public partial class Hud : CanvasLayer
             ? w.Map.RegionName(new System.Numerics.Vector2(members.Average(u => u.Pos.X), members.Average(u => u.Pos.Y)))
             : "";
         var lines = new List<string> { Title(op.Name, where, tag, tagColor) };
+        if (op.IsScouting) lines.Add($"[color=#{Hex(Palette.Accent)}]目的: {Esc(op.ScoutObjective)}[/color]");
         foreach (var r in op.Roles)
         {
             int n = members.Count(u => u.Role == r.Name);
+            if (op.IsScouting)
+            {
+                lines.Add($"[b]{Esc(r.Name)} ×{n}[/b]  {Esc(r.DescribeScouting())}");
+                continue;
+            }
             string line = $"[b]{Esc(r.Name)} ×{n}[/b]  {Esc(r.Describe())}";
             string form = w.FormationState(op, r);
             if (form != "") line += $"   [color=#{Hex(Palette.Muted)}]隊列: {form}[/color]";

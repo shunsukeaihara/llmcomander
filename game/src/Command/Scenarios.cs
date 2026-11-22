@@ -41,9 +41,9 @@ public static class Scenarios
             """)), "", Array.Empty<int>());
         new Applier(w, 1).Apply(new ToolCall("update_operation", J("""
             {"operation": "全軍", "change_summary": "", "roles": [
-              {"role": "槍", "unit_kind": "spearman", "stance": "advance", "place": "西の基地"},
-              {"role": "弓", "unit_kind": "archer", "stance": "advance", "place": "西の基地", "kite": true},
-              {"role": "騎兵", "unit_kind": "cavalry", "stance": "advance", "place": "西の基地"}]}
+              {"role": "槍", "unit_kind": "spearman", "stance": "advance", "place": "西の平地"},
+              {"role": "弓", "unit_kind": "archer", "stance": "advance", "place": "西の平地", "kite": true},
+              {"role": "騎兵", "unit_kind": "cavalry", "stance": "advance", "place": "西の平地"}]}
             """)), "", Array.Empty<int>());
         return w;
     }

@@ -18,21 +18,96 @@ public class ScoutTests
     private static Unit StartingScout(World w, int team) => w.TeamUnits(team).Single(u => u.Kind == UnitKind.Scout);
 
     [Fact]
-    public void ScoutExploresOutwardFromTheTownCenter()
+    public void ScoutMissionKeepsMovingAndExpandsWithoutAnLlm()
     {
         var w = MapLayout.CreateValley();
         var scout = StartingScout(w, 0);
         int before = Explored(w, 0);
-        new Applier(w, 0).Apply(new ToolCall("update_operation", J("""
-            {"operation": "偵察", "change_summary": "", "roles": [{"role": "斥候", "unit_kind": "scout", "stance": "explore", "place": "own_base"}]}
-            """)), "", Array.Empty<int>());
+        var r = new Applier(w, 0).Apply(new ToolCall("scout", J("""
+            {"name": "偵察", "objective": "村の中心を中心に同心円状に少しずつ探索", "center": "own_base"}
+            """)), "斥候で周りを探索して", Array.Empty<int>());
+        Assert.StartsWith("偵察開始", r);
+        var op = w.Teams[0].FindOp("偵察")!;
+        Assert.True(op.IsScouting);
+        Assert.Contains(scout, w.Members(op));
+
+        // LLM がいなくても、着くたびに自動で次の行き先へ向かい、止まらない
+        var start = scout.Pos;
         Run(w, 20);
+        Assert.True(Vector2.Distance(scout.Pos, start) > 3, "動いている");
         int after20 = Explored(w, 0);
-        Assert.True(after20 > before * 1.5, $"{before} → {after20}");
-        // 最初は内側の輪を回るので、基地からあまり離れない
-        Assert.True(Vector2.Distance(scout.Pos, w.BasePos(0)) < 20);
+        Assert.True(after20 > before * 1.3, $"{before} → {after20}");
+        Assert.True(Vector2.Distance(scout.Pos, w.BasePos(0)) < 25, "最初は中心の近く");
         Run(w, 60);
         Assert.True(Explored(w, 0) > after20);
+        Assert.Contains(op.Changes, c => c.Text.StartsWith("到着"));
+        Assert.Contains(op.Changes, c => c.Text.StartsWith("自動: 次の行き先"));
+    }
+
+    [Fact]
+    public void ASecondScoutOrderRetargetsTheRunningMission()
+    {
+        var w = MapLayout.CreateValley();
+        var ap = new Applier(w, 0);
+        ap.Apply(new ToolCall("scout", J("""{"name": "偵察", "objective": "周りを探索"}""")), "周りを探索して", Array.Empty<int>());
+        var r = ap.Apply(new ToolCall("scout", J("""{"name": "敵偵察", "objective": "敵を探して遠巻きに見る"}""")), "敵を探して", Array.Empty<int>());
+        Assert.StartsWith("偵察の目的を変更", r);
+        var op = w.Teams[0].FindOp("偵察")!;
+        Assert.Equal("敵を探して遠巻きに見る", op.ScoutObjective);
+        Assert.Single(w.Teams[0].ActiveOps, o => o.IsScouting);
+    }
+
+    [Fact]
+    public void ScoutMissionNeedsAScout()
+    {
+        var w = MapLayout.CreateValley();
+        StartingScout(w, 0).Hp = 0;
+        Run(w, 0.1);
+        var r = new Applier(w, 0).Apply(new ToolCall("scout", J("""{"objective": "探索"}""")), "", Array.Empty<int>());
+        Assert.Contains("いません", r);
+    }
+
+    /// <summary>偵察の担当は、見せた未探索点から次の行き先を選ぶ。</summary>
+    private sealed class WaypointLlm : ILlm
+    {
+        public int Calls;
+        public LlmRequest? Last;
+        public Task<LlmReply> Call(LlmRequest request, Action<ToolCall>? onToolCall = null, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref Calls);
+            Last = request;
+            var calls = new[]
+            {
+                new ToolCall("set_waypoint", J("""{"place": "未探索点9", "reason": "遠くを確認"}""")),
+                new ToolCall("report", J("""{"status": "北側を探索中"}""")),
+            };
+            return Task.FromResult(new LlmReply(calls, "", 0.2));
+        }
+    }
+
+    [Fact]
+    public void ScoutingLlmPicksTheNextWaypoint()
+    {
+        var w = MapLayout.CreateValley();
+        var llm = new WaypointLlm();
+        var cc = new CommandCenter(w, 0, llm, null, new LlmSettings());
+        new Applier(w, 0).Apply(new ToolCall("scout", J("""{"name": "偵察", "objective": "敵の金鉱を探して", "center": "enemy_base"}""")), "", Array.Empty<int>());
+        var op = w.Teams[0].FindOp("偵察")!;
+        for (int i = 0; i < 400 && op.Status == ""; i++)
+        {
+            w.Step();
+            Thread.Sleep(2);
+            cc.Update();
+        }
+        Assert.Equal("北側を探索中", op.Status);
+        Assert.StartsWith("未探索点9", op.Roles[0].Anchor.Name);
+        Assert.Contains(op.Changes, c => c.Text.StartsWith("次の行き先: 未探索点9"));
+        // 敵の本拠地はまだ見つけていないので、知っているかのような情報は渡さない
+        Assert.Contains("敵の本拠地: まだ見つけていない", llm.Last!.User);
+        Assert.DoesNotContain("敵基地から", llm.Last.User);
+        Assert.Contains("敵の金鉱を探して", llm.Last!.User);
+        Assert.Contains("未探索点1", llm.Last.User);
+        Assert.Equal(Tools.ScoutSystem, llm.Last.System);
     }
 
     [Fact]
@@ -77,23 +152,6 @@ public class ScoutTests
         Assert.Equal(enemy.MaxHp, enemy.Hp);                         // 攻撃しない
         Assert.True(Vector2.Distance(scout.Pos, enemy.Pos) > 4.5f);   // 距離を取る
         Assert.Contains("交戦せず逃げる", w.Teams[0].FindOp("見張り")!.FindRole("斥候")!.Describe());
-    }
-
-    [Fact]
-    public void ExploreRadiusLimitsTheSearch()
-    {
-        var w = MapLayout.CreateValley();
-        var scout = StartingScout(w, 0);
-        new Applier(w, 0).Apply(new ToolCall("update_operation", J("""
-            {"operation": "近く", "change_summary": "", "roles": [{"role": "斥候", "unit_kind": "scout", "stance": "explore", "place": "own_base", "radius": 10}]}
-            """)), "", Array.Empty<int>());
-        float maxD = 0;
-        for (int i = 0; i < 60; i++)
-        {
-            Run(w, 1);
-            maxD = MathF.Max(maxD, Vector2.Distance(scout.Pos, w.BasePos(0)));
-        }
-        Assert.True(maxD < 16, $"最大 {maxD}");
     }
 }
 

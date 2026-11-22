@@ -20,8 +20,9 @@ public static class MapLayout
             map.Regions.Add(new Region(key, name, new Vector2(x, y), r));
 
         // 対になる地名を両側に置く
-        Region("west_base", "西の基地", 16.5f, 64.5f, 9);
-        Region("east_base", "東の基地", 64.5f, 16.5f, 9);
+        // 本拠地の場所が地名からわからないよう、どちらも「平地」と呼ぶ(自軍の基地は own_base / 自軍基地 で指す)
+        Region("west_base", "西の平地", 16.5f, 64.5f, 9);
+        Region("east_base", "東の平地", 64.5f, 16.5f, 9);
         Region("center", "中央", 40, 40, 7);
         Region("north_hill", "北の丘", 22, 22, 6);
         Region("south_hill", "南の丘", 58, 58, 6);

@@ -13,7 +13,7 @@ public static class Tools
     private const string RuleProps = $$"""
         "stance": {"type": "string", "enum": ["hold", "advance", "retreat", "explore", "patrol"],
                    "description": "hold=場所で待機し近づく敵を迎撃 / advance=場所へ進撃し道中と到着先の敵を攻撃 / retreat=敵を無視して場所へ下がる"},
-        "place": {"type": "string", "description": "場所の名前。状況に出ている地名・目印・指示点、または own_base / enemy_base / rally"},
+        "place": {"type": "string", "description": "場所の名前。状況に出ている地名・目印・指示点、または own_base / rally / enemy_base(敵の本拠地を見つけているときだけ)"},
         "formation": {"type": "string", "enum": ["line", "cluster"], "description": "line=場所が線の目印のとき線に沿って横隊 / cluster=密集"},
         "kite": {"type": "boolean", "description": "引き撃ち(近接兵から距離を取りながら射撃)。弓向け"},
         "radius": {"type": "number", "description": "explore では探索する範囲の半径、patrol では回る半径(マス)。遠巻きなら 12〜16、すぐ近くなら 6〜8"},
@@ -129,13 +129,28 @@ public static class Tools
          "required": ["action"]}
         """));
 
+    public static readonly ToolSpec Scout = new("scout",
+        "偵察任務を作る。斥候(または指定した兵)を任務に移し、行き先は任務の担当が目的に沿って順に決める。斥候は戦わず、敵が近づくと逃げる。",
+        J("""
+        {"type": "object",
+         "properties": {
+           "name": {"type": "string", "description": "任務の名前(短く。例: 偵察、金鉱探し、敵基地の監視)"},
+           "objective": {"type": "string", "description": "目的。プレイヤーの言葉をほぼそのまま(例: 村の中心を中心に同心円状に少しずつ探索、敵の金鉱を探す、敵の拠点を遠巻きに回って様子を見る)"},
+           "center": {"type": "string", "description": "探索の中心。地名・目印・own_base など(既定 own_base)。敵の本拠地を見つけていれば enemy_base も使える"},
+           "unit_kind": {"type": "string", "enum": ["scout", "cavalry", "spearman", "archer"], "description": "使う兵種(既定 scout)"},
+           "count": {"type": "integer", "description": "使う数(既定 1)"},
+           "assign_from": {"type": "string", "description": "reserve(既定)/ selected / any / 作戦名"}
+         },
+         "required": ["objective"]}
+        """));
+
     public static readonly ToolSpec Reply = new("reply",
         "プレイヤーへの短い返答。指示が曖昧で実行できないとき、質問に答えるときに使う。命令を実行できたときは不要。",
         J("""{"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}"""));
 
     public static readonly IReadOnlyList<ToolSpec> CommanderTools = new[]
     {
-        UpdateOperation, DisbandOperation, SetEconomy, ProposeBuild, ConfirmBuild, CancelBuild, Garrison, Reply,
+        UpdateOperation, DisbandOperation, SetEconomy, ProposeBuild, ConfirmBuild, CancelBuild, Garrison, Scout, Reply,
     };
 
     // ------------------------------------------------------------ 担当LLM(作戦ごと)
@@ -162,6 +177,30 @@ public static class Tools
         }
         """));
 
+    // ------------------------------------------------------------ 偵察の担当LLM
+
+    public static readonly ToolSpec SetWaypoint = new("set_waypoint",
+        "斥候の次の行き先を1つ決める。",
+        J("""
+        {"type": "object",
+         "properties": {"place": {"type": "string", "description": "未探索点の名前(例: 未探索点3)、地名、目印、own_base(見つけていれば enemy_base)"},
+                        "reason": {"type": "string", "description": "選んだ理由(20字以内)"}},
+         "required": ["place"]}
+        """));
+
+    public static readonly IReadOnlyList<ToolSpec> ScoutTools = new[] { SetWaypoint, Report };
+
+    public const string ScoutSystem = """
+        あなたはリアルタイムストラテジーゲームで、斥候を誘導する偵察の担当です。斥候が行き先に着くたび、または数秒ごとに状況を受け取ります。
+        - プレイヤーの目的に沿って、次の行き先を set_waypoint で1つ選んでください。今の行き先がまだ目的に合っていて移動中なら、変えなくてかまいません。
+          - 「同心円状に少しずつ」なら、探索の中心からの距離が近い未探索点から順に。遠くへ飛ばない。
+          - 敵の本拠地の位置は、敵の村の中心を見つけるまでわからない。知っているふりをしないこと。
+          - 「敵を探して」「敵の金鉱を探して」で本拠地が未発見なら、自軍基地から離れた未探索点を広く順に回り、敵の建物や兵を見つけたら報告する。本拠地を見つけたら、その周りの未探索点を優先する。
+          - 「遠巻きに様子を見る」なら、見つけている敵の本拠地から10〜15マスほど離れた場所を順に回る。近づきすぎない。
+        - 斥候は戦えません。最後に見た敵の近くは避けてください(逃げる動きはゲームがする)。
+        - 毎回 report で、見つけたもの・探索の進み具合を40字以内で書いてください。文章での返答は不要です。
+        """;
+
     public static readonly IReadOnlyList<ToolSpec> OfficerTools = new[] { Report, AdjustRole };
 
     // ------------------------------------------------------------ システムプロンプト
@@ -177,11 +216,8 @@ public static class Tools
         - 兵は必ずどれか一つの作戦に属する。作戦は役割(兵種ごと)を持ち、役割ごとに交戦規則(stance / place / formation / kite / priority)がある。
         - 「予備」は作戦に属していない兵の置き場。新兵は既定で予備に入る。「経済」は村人の作戦。
         - ユニットは規則に従って自律的に動き続ける。あなたは規則と割り当てを変えるだけ。
-        - 斥候(scout)は速く視界が広いが弱い。偵察は役割の規則の組み合わせで表す:
-          - 「周りを少しずつ探索」→ stance=explore, place=中心(own_base など)。範囲を絞るなら radius。
-          - 「敵の金鉱を探して」→ explore, place=enemy_base, radius=25 など(見つけた資源は状況の「見つけた資源」に出る)。
-          - 「敵の拠点を遠巻きに回って偵察」→ stance=patrol, place=enemy_base, radius=14 前後。
-          - 「〜を見張って、攻撃されたら逃げて」→ stance=hold, place=見張る場所, evade=true。
+        - 斥候(scout)は速く視界が広いが弱い。探索・偵察・資源探し・遠巻きの監視は scout ツールで偵察任務にする(目的にプレイヤーの言葉を書く)。行き先は任務の担当が決めるので、あなたは場所を細かく指定しない。任務をやめるときは disband_operation。
+        - 見張り(その場で待って、攻撃されたら逃げる)は update_operation の stance=hold, evade=true。決まった場所を回るなら stance=patrol, radius。
         - 「村人を村の中心に避難」「こもって守れ」は garrison(enter)、「外に出て仕事に戻れ」は garrison(leave)。
         - 「新兵は〜に集めて」は set_economy の rally。
         - 霧がある。状況に出る敵は自軍から見えているものと、最後に見た位置の記録だけ。ユニットも見えている敵しか狙わない。敵の様子がわからないときは、少数の騎兵で偵察する作戦を作るとよい。

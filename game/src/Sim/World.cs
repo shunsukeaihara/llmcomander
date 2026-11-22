@@ -116,7 +116,17 @@ public sealed partial class World
         return tc?.Pos ?? Map.FindRegion(team == 0 ? "west_base" : "east_base")!.Center;
     }
 
-    /// <summary>場所の名前を座標にする。プレイヤーの目印、地名、自軍基地・敵基地。</summary>
+    /// <summary>
+    /// team が知っている敵の本拠地(見たことのある敵の村の中心)。まだ見つけていなければ null。
+    /// 敵AIのような決定論的な処理は BasePos(1 - team) で本当の位置を使ってよいが、LLM に渡す情報はこちらを使う。
+    /// </summary>
+    public Vector2? KnownEnemyBase(int team)
+    {
+        var tc = Vision[team].Buildings.Values.Where(b => b.Kind == BuildingKind.TownCenter).OrderBy(b => b.Id).FirstOrDefault();
+        return tc == null ? null : new Vector2(tc.TileX + 1.5f, tc.TileY + 1.5f);
+    }
+
+    /// <summary>場所の名前を座標にする。プレイヤーの目印、地名、自軍基地・敵基地(見つけていれば)。</summary>
     public Place? ResolvePlace(int team, string name)
     {
         string n = name.Trim();
@@ -128,7 +138,8 @@ public sealed partial class World
             case "own_base" or "自軍基地" or "基地":
                 return new Place("自軍基地", new[] { BasePos(team) });
             case "enemy_base" or "敵基地":
-                return new Place("敵基地", new[] { BasePos(1 - team) });
+                // 敵の本拠地は、敵の村の中心を見つけるまでわからない
+                return KnownEnemyBase(team) is { } eb ? new Place("敵基地", new[] { eb }) : null;
             case "rally" or "集合地点":
                 return new Place(ts.RallyName, new[] { ts.Rally });
         }
@@ -192,7 +203,12 @@ public sealed partial class World
         Profiler.End("経済", p);
         p = Profiler.Begin();
         if (_tick % 5 == 0)
-            foreach (var t in Teams) CheckTriggers(t);
+            foreach (var t in Teams)
+            {
+                CheckTriggers(t);
+                CheckArrivals(t);
+                CheckScouting(t);
+            }
         if (_tick % 20 == 10)
             foreach (var t in Teams) PruneManualOps(t);
         Profiler.End("条件", p);

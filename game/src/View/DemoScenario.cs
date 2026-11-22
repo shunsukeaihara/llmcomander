@@ -58,8 +58,8 @@ public static class DemoScenario
         for (int i = 0; i < 6; i++) w.SpawnUnit(1, UnitKind.Archer, new SVec(38 + i % 3, 20 + i / 3));
         new Applier(w, 1).Apply(new ToolCall("update_operation", J("""
             {"operation": "攻撃隊", "change_summary": "",
-             "roles": [{"role": "槍", "unit_kind": "spearman", "stance": "advance", "place": "西の基地"},
-                       {"role": "弓", "unit_kind": "archer", "stance": "advance", "place": "西の基地", "kite": true}]}
+             "roles": [{"role": "槍", "unit_kind": "spearman", "stance": "advance", "place": "西の平地"},
+                       {"role": "弓", "unit_kind": "archer", "stance": "advance", "place": "西の平地", "kite": true}]}
             """)), "", System.Array.Empty<int>());
     }
 
