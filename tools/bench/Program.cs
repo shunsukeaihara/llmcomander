@@ -44,7 +44,17 @@ foreach (var u in utterances)
     var sw = Stopwatch.StartNew();
     double? first = null;
     // ゲームと同じく、ストリーミングで受け取って最初の命令が完成した時刻を測る
-    var reply = await llm.Call(req, _ => first ??= sw.Elapsed.TotalSeconds);
+    LlmReply reply;
+    try
+    {
+        reply = await llm.Call(req, _ => first ??= sw.Elapsed.TotalSeconds);
+    }
+    catch (Exception ex)
+    {
+        // API のエラー(残高不足・キーの誤り・混雑など)は内容だけ出して終える
+        Console.Error.WriteLine($"「{u}」でLLMの呼び出しに失敗しました: {ex.Message.Split('\n')[0]}");
+        return 1;
+    }
     times.Add(sw.Elapsed.TotalSeconds);
     if (first is { } f) firsts.Add(f);
     Console.WriteLine($"\n=== 「{u}」 最初の命令 {(first is { } f2 ? f2.ToString("0.00") + "秒" : "なし")} / 完了 {sw.Elapsed.TotalSeconds:0.00}秒 ({settings.CommanderModel}, effort {settings.CommanderEffort})");
@@ -61,7 +71,16 @@ foreach (var u in utterances)
 var officerReq = new LlmRequest(settings.OfficerModel, settings.OfficerEffort, Tools.OfficerSystem,
     Context.Officer(w, front, new[] { "槍が3体やられた" }), Tools.OfficerTools, 1500);
 var osw = Stopwatch.StartNew();
-var oreply = await llm.Call(officerReq);
+LlmReply oreply;
+try
+{
+    oreply = await llm.Call(officerReq);
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"担当LLMの呼び出しに失敗しました: {ex.Message.Split('\n')[0]}");
+    return 1;
+}
 Console.WriteLine($"\n=== 担当LLM({settings.OfficerModel}) {osw.Elapsed.TotalSeconds:0.00}秒 {oreply.Error}");
 foreach (var c in oreply.Calls) Console.WriteLine($"  {c.Name} {c.Input}");
 
