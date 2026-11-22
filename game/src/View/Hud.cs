@@ -378,6 +378,7 @@ public partial class Hud : CanvasLayer
             : "";
         var lines = new List<string> { Title(op.Name, where, tag, tagColor) };
         if (op.IsScouting) lines.Add($"[color=#{Hex(Palette.Accent)}]目的: {Esc(op.ScoutObjective)}[/color]");
+        else if (op.Goal != "" && !op.IsReserve && !op.IsManual) lines.Add($"[color=#{Hex(Palette.Accent)}]目的: {Esc(op.Goal)}[/color]");
         foreach (var r in op.Roles)
         {
             int n = members.Count(u => u.Role == r.Name);

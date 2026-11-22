@@ -32,6 +32,13 @@ public static class Context
         var members = w.Members(op, r).ToList();
         var sb = new StringBuilder($"{r.Name}({(r.Kind is { } k ? Defs.Key(k) : "混成")}) {members.Count}体: {r.Describe()}");
         if (r.Trigger is { } tr) sb.Append($" [条件待ち: {tr.Text}]");
+        var outside = members.Where(u => !u.IsInside).ToList();
+        if (outside.Count > 0)
+        {
+            var c = new Vector2(outside.Average(u => u.Pos.X), outside.Average(u => u.Pos.Y));
+            float toAnchor = r.Anchor.Distance(c);
+            sb.Append($" [今いる所: {w.Map.RegionName(c)}、持ち場まで{toAnchor:0}マス{(r.Arrived ? "、到着済み" : "")}]");
+        }
         return sb.ToString();
     }
 
@@ -151,6 +158,7 @@ public static class Context
             var members = w.Members(op).ToList();
             if (op.IsReserve && members.Count == 0) { sb.AppendLine("- 予備: なし"); continue; }
             sb.AppendLine($"- {op.Name}({w.OpTag(op)}){(op.Status != "" ? " 状況: " + op.Status : "")}");
+            if (op.Goal != "" && !op.IsScouting) sb.AppendLine($"  - 目的: {op.Goal}");
             if (op.IsScouting)
             {
                 sb.AppendLine($"  - 偵察任務。目的: {op.ScoutObjective}。斥候{members.Count}騎、{op.Roles.FirstOrDefault()?.DescribeScouting()}");
@@ -168,7 +176,7 @@ public static class Context
         if (ts.Markers.Count > 0)
         {
             sb.AppendLine("プレイヤーの目印:");
-            foreach (var m in ts.Markers) sb.AppendLine($"- {m.Name}({PlaceText(w, m.ToPlace())})");
+            foreach (var m in ts.Markers) sb.AppendLine($"- {m.Name}: {PlaceText(w, m.ToPlace())}");
         }
 
         var found = FoundResources(w, team);
@@ -194,7 +202,7 @@ public static class Context
         }
         if (ctx.Clicks.Count > 0)
             sb.AppendLine("\n## 発話中にクリックした地点\n" +
-                          string.Join("\n", ctx.Clicks.Select((c, i) => $"- 指示点{i + 1}({w.Map.RegionName(c)}付近)")));
+                          string.Join("\n", ctx.Clicks.Select((c, i) => $"- 指示点{i + 1}: {w.Map.RegionName(c)}付近")));
 
         var recent = ts.History.Where(h => !h.Pending).TakeLast(4).ToList();
         if (recent.Count > 0)
@@ -209,24 +217,41 @@ public static class Context
 
     public static string Officer(World w, Operation op, IReadOnlyList<string> events)
     {
+        var ts = w.Teams[op.Team];
         var sb = new StringBuilder();
         sb.AppendLine($"作戦「{op.Name}」の担当です。経過 {Clock(w.Time)}。");
+        if (op.Goal != "") sb.AppendLine($"\n## 作戦の目的\n{op.Goal}");
         if (op.Intents.Count > 0)
-            sb.AppendLine("プレイヤーの指示(古い順):\n" + string.Join("\n", op.Intents.TakeLast(5).Select(i => $"- 「{i}」")));
-        sb.AppendLine("\n## 役割");
+            sb.AppendLine("\n## プレイヤーの指示(古い順、最後が最新)\n" + string.Join("\n", op.Intents.TakeLast(5).Select(i => $"- 「{i}」")));
+        sb.AppendLine("\n## 役割(今の規則)");
         foreach (var r in op.Roles)
         {
             var m = w.Members(op, r).ToList();
             if (m.Count == 0 && r.InitialCount == 0) continue;
             int fighting = m.Count(u => w.Time - u.LastFoughtAt < 2);
             float hp = m.Count > 0 ? m.Average(u => u.Hp / u.MaxHp) : 0;
-            sb.AppendLine($"- {RoleText(w, op, r)}(当初{Math.Max(r.InitialCount, m.Count)}体、交戦中{fighting}体、平均体力{hp:P0}、隊列: {w.FormationState(op, r)}、位置: {(m.Count > 0 ? w.Map.RegionName(new Vector2(m.Average(u => u.Pos.X), m.Average(u => u.Pos.Y))) : "-")}付近)");
+            sb.AppendLine($"- {RoleText(w, op, r)}(当初{Math.Max(r.InitialCount, m.Count)}体、交戦中{fighting}体、平均体力{hp:P0}、隊列: {w.FormationState(op, r)})");
         }
         var center = w.Members(op).Select(u => u.Pos).DefaultIfEmpty(op.Roles.FirstOrDefault()?.Anchor.Center ?? Vector2.Zero);
         var c = new Vector2(center.Average(p => p.X), center.Average(p => p.Y));
         sb.AppendLine("\n## 近く(15マス以内)の敵");
         sb.AppendLine(EnemyText(w, op.Team, u => Vector2.Distance(u.Pos, c) < 15));
+        var remembered = RememberedText(w, op.Team);
+        if (remembered != "") sb.AppendLine("今は見えていない敵(最後に見た位置):\n" + remembered);
+
+        sb.AppendLine("\n## 場所");
+        var knownEnemy = w.KnownEnemyBase(op.Team);
+        sb.AppendLine("地名: " + string.Join("、", w.Map.Regions.Select(r => $"{r.Name}({Vector2.Distance(r.Center, c):0}マス)")) +
+                      $"、own_base、rally({ts.RallyName})" + (knownEnemy is { } ke ? $"、enemy_base({Vector2.Distance(ke, c):0}マス)" : "、敵の本拠地は未発見"));
+        if (ts.Markers.Count > 0)
+            sb.AppendLine("目印: " + string.Join("、", ts.Markers.Select(m => $"{m.Name}({PlaceText(w, m.ToPlace())}、{m.ToPlace().Distance(c):0}マス)")));
+        var others = ts.ActiveOps.Where(o => o != op && !o.IsEconomy && w.Members(o).Any())
+            .Select(o => $"{o.Name}({Counts(w.Members(o))}、{w.Map.RegionName(w.Members(o).First().Pos)})").ToList();
+        if (others.Count > 0) sb.AppendLine("味方のほかの作戦: " + string.Join("、", others));
+        sb.AppendLine("(かっこ内の距離は、この作戦の今の位置から)");
+
         if (events.Count > 0) sb.AppendLine("\n## 前回からの出来事\n" + string.Join("\n", events.Select(e => "- " + e)));
+        if (op.OfficerProblems != "") sb.AppendLine($"\n前回のあなたの命令で通らなかったこと: {op.OfficerProblems}");
         if (op.Status != "") sb.AppendLine($"\n前回のあなたの報告: {op.Status}");
         return sb.ToString();
     }

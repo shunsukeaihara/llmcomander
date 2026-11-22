@@ -315,6 +315,7 @@ public sealed class CommandCenter
         op.Eventful = false;
         op.OfficerDue = _w.Time + Settings.OfficerInterval;
         string user = Context.Officer(_w, op, CollectEvents(op));
+        int version = op.IntentVersion;
         var req = new LlmRequest(Settings.OfficerModel, Settings.OfficerEffort, Tools.OfficerSystem, user, Tools.OfficerTools, 1500);
         Interlocked.Increment(ref InFlight);
         Task.Run(async () =>
@@ -333,6 +334,14 @@ public sealed class CommandCenter
             {
                 Interlocked.Decrement(ref InFlight);
                 op.OfficerBusy = false;
+                // 考えている間にプレイヤーの指示で作戦が変わっていたら、状況の報告以外は捨てる(すぐ考え直させる)
+                var results = new List<string>();
+                if (reply.Error == null && !op.Disbanded)
+                    foreach (var c in reply.Calls)
+                        if (version == op.IntentVersion || c.Name == "report")
+                            results.Add(_applier.ApplyOfficer(op, c));
+                if (version != op.IntentVersion) op.OfficerDue = 0;
+                op.OfficerProblems = string.Join("、", results.Where(r => r != ""));
                 Log?.Write("officer", new
                 {
                     op = op.Name,
@@ -340,15 +349,11 @@ public sealed class CommandCenter
                     model = req.Model,
                     prompt = user,
                     calls = reply.Calls.Select(c => new { name = c.Name, input = c.Input }),
+                    results,
+                    stale = version != op.IntentVersion,
                     error = reply.Error,
                 });
-                if (reply.Error != null)
-                {
-                    LastError = reply.Error;
-                    return;
-                }
-                if (op.Disbanded) return;
-                foreach (var c in reply.Calls) _applier.ApplyOfficer(op, c);
+                if (reply.Error != null) LastError = reply.Error;
             });
         });
     }

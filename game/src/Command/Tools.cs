@@ -11,13 +11,13 @@ public static class Tools
     private const string Kinds = "\"spearman\", \"archer\", \"cavalry\", \"scout\", \"villager\"";
 
     private const string RuleProps = $$"""
-        "stance": {"type": "string", "enum": ["hold", "advance", "retreat", "explore", "patrol"],
+        "stance": {"type": "string", "enum": ["hold", "advance", "retreat", "patrol"],
                    "description": "hold=場所で待機し近づく敵を迎撃 / advance=場所へ進撃し道中と到着先の敵を攻撃 / retreat=敵を無視して場所へ下がる"},
-        "place": {"type": "string", "description": "場所の名前。状況に出ている地名・目印・指示点、または own_base / rally / enemy_base(敵の本拠地を見つけているときだけ)"},
+        "place": {"type": "string", "description": "場所。書き方は「場所の書き方」を参照(名前、「指示点1から中央へ3マス」「槍の位置」「AとBの間」「A〜B」など)"},
         "formation": {"type": "string", "enum": ["line", "cluster"], "description": "line=場所が線の目印のとき線に沿って横隊 / cluster=密集"},
         "kite": {"type": "boolean", "description": "引き撃ち(近接兵から距離を取りながら射撃)。弓向け"},
-        "radius": {"type": "number", "description": "explore では探索する範囲の半径、patrol では回る半径(マス)。遠巻きなら 12〜16、すぐ近くなら 6〜8"},
-        "evade": {"type": "boolean", "description": "戦わない。敵兵が近づいたり攻撃されたりしたら逃げ、離れたら元の行動に戻る(見張りや偵察向け。explore と patrol では常に有効)"},
+        "radius": {"type": "number", "description": "patrol で回る半径(マス)。遠巻きなら 12〜16、すぐ近くなら 6〜8"},
+        "evade": {"type": "boolean", "description": "戦わない。敵兵が近づいたり攻撃されたりしたら逃げ、離れたら元の行動に戻る(見張りや偵察向け。patrol では常に有効)"},
         "priority": {"type": "array", "items": {"type": "string", "enum": [{{Kinds}}]}, "description": "優先して狙う兵種(先頭ほど優先)。空配列で優先なし"}
         """;
 
@@ -58,6 +58,7 @@ public static class Tools
           "type": "object",
           "properties": {
             "operation": {"type": "string", "description": "作戦名。既存の名前なら更新、新しい名前なら作成。例: 戦線A、北の守り"},
+            "goal": {"type": "string", "description": "作戦の目的。プレイヤーの意図を、規則に収まらない部分も含めて言葉で書く(例: 槍で敵の弓に圧をかけ続け、劣勢なら指示点1まで下がる)。作戦の担当がこれを見て細部を決め続ける。意図が変わったときだけ書く"},
             "roles": {"type": "array", "items": {{RoleSchema}} },
             "change_summary": {"type": "string", "description": "カードに出す変更の要約(25字以内の日本語)"}
           },
@@ -144,13 +145,27 @@ public static class Tools
          "required": ["objective"]}
         """));
 
+    public static readonly ToolSpec SetMarker = new("set_marker",
+        "地図の目印を作る・動かす(同じ名前があれば動かす)。その目印を持ち場にしている部隊も一緒に動く。「指示点を少し中央寄りに」「槍がいる場所を集合地点Cに」など。",
+        J("""
+        {"type": "object",
+         "properties": {"name": {"type": "string", "description": "目印の名前(既存の指示点・目印、または新しい名前)"},
+                        "place": {"type": "string", "description": "置く場所(場所の書き方で。例: 指示点1から中央へ3マス、予備/槍の位置)"},
+                        "line_to": {"type": "string", "description": "線の目印にするときの、もう一方の端"}},
+         "required": ["name", "place"]}
+        """));
+
+    public static readonly ToolSpec DeleteMarker = new("delete_marker",
+        "地図の目印を消す。",
+        J("""{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}"""));
+
     public static readonly ToolSpec Reply = new("reply",
-        "プレイヤーへの短い返答。指示が曖昧で実行できないとき、質問に答えるときに使う。命令を実行できたときは不要。",
+        "プレイヤーへの短い返答。質問に答えるとき、推測して実行した内容を一言伝えるとき、どうしても実行できないときに使う。",
         J("""{"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}"""));
 
     public static readonly IReadOnlyList<ToolSpec> CommanderTools = new[]
     {
-        UpdateOperation, DisbandOperation, SetEconomy, ProposeBuild, ConfirmBuild, CancelBuild, Garrison, Scout, Reply,
+        UpdateOperation, DisbandOperation, SetEconomy, ProposeBuild, ConfirmBuild, CancelBuild, Garrison, Scout, SetMarker, DeleteMarker, Reply,
     };
 
     // ------------------------------------------------------------ 担当LLM(作戦ごと)
@@ -164,7 +179,7 @@ public static class Tools
         """));
 
     public static readonly ToolSpec AdjustRole = new("adjust_role",
-        "担当する作戦の役割の規則を調整する。プレイヤーの指示の範囲内で、状況に合わせた細部の判断にだけ使う。",
+        "担当する作戦の役割の規則を変える。目的を実現するために、行き先・構え・隊列・狙い・引き撃ちなどを状況に合わせて決める。",
         J($$"""
         {
           "type": "object",
@@ -174,6 +189,22 @@ public static class Tools
             "reason": {"type": "string", "description": "調整の理由(25字以内)。カードに出る"}
           },
           "required": ["role", "reason"]
+        }
+        """));
+
+    public static readonly ToolSpec SplitRole = new("split_role",
+        "役割の兵の一部を新しい役割に分けて、別の動きをさせる(例: 槍のうち3体を右から回り込ませる)。",
+        J($$"""
+        {
+          "type": "object",
+          "properties": {
+            "from_role": {"type": "string"},
+            "count": {"type": "integer", "description": "分ける数"},
+            "new_role": {"type": "string", "description": "新しい役割名(例: 槍(右翼))。既存の役割名なら、そこへ移す"},
+            {{RuleProps}},
+            "reason": {"type": "string", "description": "理由(25字以内)。カードに出る"}
+          },
+          "required": ["from_role", "count", "new_role", "reason"]
         }
         """));
 
@@ -201,9 +232,21 @@ public static class Tools
         - 毎回 report で、見つけたもの・探索の進み具合を40字以内で書いてください。文章での返答は不要です。
         """;
 
-    public static readonly IReadOnlyList<ToolSpec> OfficerTools = new[] { Report, AdjustRole };
+    public static readonly IReadOnlyList<ToolSpec> OfficerTools = new[] { Report, AdjustRole, SplitRole };
 
     // ------------------------------------------------------------ システムプロンプト
+
+    /// <summary>場所の書き方(司令役と担当の両方に渡す)。</summary>
+    public const string PlaceSyntax = """
+        # 場所の書き方(place / center / near などに書く)
+        - 名前: 状況に出ている地名・目印・指示点、own_base(自軍基地)、rally(新兵の集合地点)、enemy_base(敵の本拠地を見つけたときだけ)
+        - 部隊の今の位置: 「槍の位置」「戦線A/弓の位置」「予備/槍の位置」「現在地」(担当する作戦の今の位置)
+        - 相対: 「指示点1から中央へ3マス」「自軍基地から北の丘へ少し」「指示点1から敵側へ5マス」「戦線A/槍の位置の北4マス」
+          (方角は 北・南・東・西・北東… と、敵側(前)・自陣側(後ろ)。少し=3マス。1マスは兵1体ぶん)
+        - 中間: 「指示点1と北の丘の間」
+        - 線(横隊を敷くとき): 「指示点1〜指示点2」「北の丘から中央までの線」
+        - 生の座標は書かない。名前は状況に出ているとおりに書き、「付近」やかっこ書きは付けない。
+        """;
 
     public const string CommanderSystem = """
         あなたはリアルタイムストラテジーゲームで、プレイヤー(指揮官)の音声の指示を受けて部隊と内政を動かす副官です。
@@ -214,31 +257,43 @@ public static class Tools
         - 村人は食・木・金を集める。兵舎で槍(食35 木25)、弓(木25 金45)、騎兵(食60 金75)を作る。村人は食50。
         - 建物: 村の中心(木275 金100。村人の生産と資源の受け取り)、兵舎(木175)。
         - 兵は必ずどれか一つの作戦に属する。作戦は役割(兵種ごと)を持ち、役割ごとに交戦規則(stance / place / formation / kite / priority)がある。
+        - 作戦にはそれぞれ担当(部隊長のLLM)が付き、作戦の目的(goal)を見て、数秒ごとに行き先・構え・部隊の分け方を決め続ける。
+          あなたは規則をざっくり置いて、規則の部品に収まらない意図(順番・条件・程度・様子を見て判断することなど)は goal に言葉で書いて任せる。
+          例:「槍で敵の弓をつつきつつ、押されたら下がって」→ goal にそのまま書き、規則は stance=advance だけ置く。
         - 「予備」は作戦に属していない兵の置き場。新兵は既定で予備に入る。「経済」は村人の作戦。
         - ユニットは規則に従って自律的に動き続ける。あなたは規則と割り当てを変えるだけ。
         - 斥候(scout)は速く視界が広いが弱い。探索・偵察・資源探し・遠巻きの監視は scout ツールで偵察任務にする(目的にプレイヤーの言葉を書く)。行き先は任務の担当が決めるので、あなたは場所を細かく指定しない。任務をやめるときは disband_operation。
         - 見張り(その場で待って、攻撃されたら逃げる)は update_operation の stance=hold, evade=true。決まった場所を回るなら stance=patrol, radius。
         - 「村人を村の中心に避難」「こもって守れ」は garrison(enter)、「外に出て仕事に戻れ」は garrison(leave)。
         - 「新兵は〜に集めて」「待機位置/集合場所を〜に」は set_economy の rally(作戦の持ち場ではない)。
+        - 目印(指示点・地点・線)の移動や作成は set_marker。「指示点を少し真ん中側に」→ set_marker(name=指示点1, place=指示点1から中央へ3マス)。
         - 霧がある。状況に出る敵は自軍から見えているものと、最後に見た位置の記録だけ。ユニットも見えている敵しか狙わない。敵の様子がわからないときは、少数の騎兵で偵察する作戦を作るとよい。
 
         # 指示の解釈
         - 同じ部隊・同じ戦線についての発話は、新しい作戦を作らず既存の作戦の更新にする。新しい戦線・別の目的なら新しい作戦を作る。名前は短く(例: 戦線A、北の守り、騎兵の奇襲)。
         - 「弓は引き撃ち、他は撤退」のように役割ごとに違う指示は、1回の update_operation で各役割を更新する。言及されていない項目は書かない(今の規則が残る)。
         - 「こいつら」「選択中の」は assign_from=selected。「ここ」「そこ」は発話中にクリックされた指示点(指示点1 など)。
-        - 場所は状況に出ている名前だけを使う。線の目印に陣取るときは formation=line。
+        - 場所は「場所の書き方」に従う。名前の付いていない場所も、名前の付いた場所や部隊の位置からの相対で書ける。線の目印に陣取るときは formation=line。
         - stance を retreat にするときは、撤退先の place を必ず書く(言われていなければ rally か own_base)。
         - 「〜したら〜」は trigger。例:「槍が受け止めたら騎兵を右から回せ」→ 騎兵の役割に trigger(condition=role_engaged, role=槍, then={stance: advance, place: ...})。
         - 内政の人数指定は、今の割り当てから計算して gather に最終的な人数を入れる(例:「木のうち5人を残して残りは金」→ 木=5、金=今の金+移る人数)。gather の合計は村人の数を超えないようにする。言われた数の合計が超えるときは、言われていない資源を減らす。
         - 建設は propose_build で提案するだけ(プレイヤーが確認する)。場所は「建設候補地」の特徴(資源までの距離、基地からの距離、敵の目撃)を見て、プレイヤーの条件に一番合う候補を site で選ぶ。合う候補がなければ near で地名・目印を指定する。プレイヤーが「OK」「それで」「建てて」と承認したら confirm_build。どれを承認したか言われていなければ、「直前の提案」の印がある計画だけを確定する。
-        - 実行できない・曖昧すぎるときは reply で短く聞き返す。推測で補えるときは推測して実行する。
-        """;
+        - 聞き返さない。曖昧な指示も、状況から一番ありそうな解釈で実行し、推測した点は change_summary に書く(例: 「指示点1を3マス中央寄りへ(距離は推測)」)。
+          聞き間違いらしい発話も、状況に合う意味に読み替えて実行する。どう読んでも実行できないときだけ reply で短く伝える。
+        - 質問(「待機位置は?」など)には reply で答える。
+        """ + PlaceSyntax;
 
     public const string OfficerSystem = """
-        あなたはリアルタイムストラテジーゲームで、一つの作戦を担当する部隊長です。数秒ごとに戦況を受け取ります。
-        - 毎回 report で作戦カードの状況欄(40字以内)を書いてください。プレイヤーが一目で戦況を掴めるよう、交戦相手・優劣・隊列・懸念を簡潔に。
-        - adjust_role は、プレイヤーの指示の範囲で細部を判断するときだけ使います(例: 隊列が崩れたので集合地点で再編、狙う兵種を戦況に合わせる)。
-          プレイヤーの指示の stance や place を勝手に変えないでください。迷ったら変えずに report で懸念を伝えます。
+        あなたはリアルタイムストラテジーゲームで、一つの作戦を任された部隊長です。プレイヤーの意図(作戦の目的と指示)を実現する責任者です。
+        作戦が作られた・変わった直後と、その後は数秒ごと(何か起きたらすぐ)に状況を受け取ります。
+        - 目的と指示を読み、今の規則で実現できていなければ adjust_role / split_role で規則を変えてください。
+          - 「押されたら下がる」「様子を見て」「少しずつ前へ」「挟み撃ち」のように、状況を見て判断する指示はあなたが判断する。
+          - 順番のある指示(「Aへ行ってからBへ」)は、着いたのを見て次の行き先に変える。
+          - 部隊を分けて別の動きをさせるときは split_role。
+        - 一番新しいプレイヤーの指示が最優先。指示にはっきり書かれた構えや場所は、目的のために必要なときだけ変える。
+        - 今の規則で目的どおり進んでいれば、何も変えなくてよい。毎回大きく変えると部隊が右往左往するので避ける。
+        - 毎回 report で作戦カードの状況欄(40字以内)を書いてください。交戦相手・優劣・次にやること・懸念を簡潔に。
         - 文章での返答は不要です。ツールだけを使ってください。
-        """;
+        """ + PlaceSyntax;
+
 }

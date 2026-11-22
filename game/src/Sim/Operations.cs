@@ -166,6 +166,14 @@ public sealed class Operation
     public readonly List<OpChange> Changes = new();
     /// <summary>プレイヤーがこの作戦に対して言ったこと(担当LLMが意図を汲むため)。</summary>
     public readonly List<string> Intents = new();
+    /// <summary>
+    /// 作戦の目的(司令役がプレイヤーの言葉で書く)。規則の部品に収まらない意図も、担当LLMがこれを見て実現する。
+    /// </summary>
+    public string Goal = "";
+    /// <summary>プレイヤーの指示で作戦が変わるたびに増える。担当LLMの古い判断を捨てるのに使う。</summary>
+    public int IntentVersion;
+    /// <summary>担当LLMの直前の命令で通らなかったこと(次の呼び出しで伝える)。</summary>
+    public string OfficerProblems = "";
     /// <summary>担当LLMが書く状況の要約。</summary>
     public string Status = "";
     public double StatusAt = -999;

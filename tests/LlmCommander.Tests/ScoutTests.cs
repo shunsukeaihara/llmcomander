@@ -93,9 +93,11 @@ public class ScoutTests
         var cc = new CommandCenter(w, 0, llm, null, new LlmSettings());
         new Applier(w, 0).Apply(new ToolCall("scout", J("""{"name": "偵察", "objective": "敵の金鉱を探して", "center": "enemy_base"}""")), "", Array.Empty<int>());
         var op = w.Teams[0].FindOp("偵察")!;
-        for (int i = 0; i < 400 && op.Status == ""; i++)
+        // 並列に走るほかのテストでスレッドプールが混むことがあるので、回数ではなく時間で待つ
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (op.Status == "" && DateTime.UtcNow < deadline)
         {
-            w.Step();
+            if (Volatile.Read(ref llm.Calls) == 0) w.Step(); // 呼ばれるまでは時間を進めすぎない
             Thread.Sleep(2);
             cc.Update();
         }

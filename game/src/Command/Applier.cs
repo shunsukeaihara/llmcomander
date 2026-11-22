@@ -47,10 +47,10 @@ public sealed class Applier
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray() : Enumerable.Empty<JsonElement>();
 
-    private Place? PlaceOf(string? name) => name == null ? null : _w.ResolvePlace(_team, name);
+    private Place? PlaceOf(string? name, Operation? self = null) => name == null ? null : _w.ResolvePlace(_team, name, self);
 
     /// <summary>規則の項目を読む。場所が解決できなければ problems に書く。</summary>
-    private RulePatch ReadRule(JsonElement e, List<string> problems)
+    private RulePatch ReadRule(JsonElement e, List<string> problems, Operation? self = null)
     {
         var p = new RulePatch();
         switch (Str(e, "stance"))
@@ -62,7 +62,7 @@ public sealed class Applier
         }
         if (Str(e, "place") is { } pn)
         {
-            p.Anchor = PlaceOf(pn);
+            p.Anchor = PlaceOf(pn, self);
             if (p.Anchor == null) problems.Add($"場所「{pn}」が見つかりません");
         }
         switch (Str(e, "formation"))
@@ -99,6 +99,8 @@ public sealed class Applier
                 "cancel_build" => Confirm(call.Input, false),
                 "garrison" => Garrison(call.Input),
                 "scout" => Scout(call.Input, utterance, selected),
+                "set_marker" => SetMarker(call.Input),
+                "delete_marker" => DeleteMarker(call.Input),
                 // 中身のない返答は無視する(命令に添えて空の reply が付いてくることがある)
                 "reply" => string.IsNullOrWhiteSpace(Str(call.Input, "text")) ? "" : "返答: " + Str(call.Input, "text"),
                 _ => $"不明な命令 {call.Name}",
@@ -133,7 +135,7 @@ public sealed class Applier
             if (roleName == "" && hasKind) roleName = Defs.Ja(kind);
             if (roleName == "") { problems.Add("役割名がありません"); continue; }
 
-            var patch = ReadRule(re, problems);
+            var patch = ReadRule(re, problems, op);
             var role = op.FindRole(roleName);
             bool newRole = role == null;
             if (role == null)
@@ -180,6 +182,11 @@ public sealed class Applier
         op.Roles.RemoveAll(r => !_w.Members(op, r).Any() && r.Trigger == null && !op.IsReserve && op.Roles.Count > 1);
 
         string summary = Str(input, "change_summary") ?? "更新";
+        if (Str(input, "goal") is { } goal && goal.Trim() != "") op.Goal = goal.Trim();
+        else if (created && op.Goal == "") op.Goal = utterance;
+        // 担当にすぐ考え直させる(この更新より前に始まった担当の判断は捨てる)
+        op.IntentVersion++;
+        op.OfficerDue = 0;
         op.Intents.Add(utterance);
         if (op.Intents.Count > 8) op.Intents.RemoveAt(0);
         op.Log(_w.Time, $"「{utterance}」→ {summary}");
@@ -438,6 +445,41 @@ public sealed class Applier
         return "";
     }
 
+    private string SetMarker(JsonElement input)
+    {
+        string name = (Str(input, "name") ?? "").Trim();
+        if (name == "") return "目印の名前がありません";
+        string? placeText = Str(input, "place");
+        var place = PlaceOf(placeText);
+        if (place == null) return $"場所「{placeText}」が見つかりません";
+        var points = new List<System.Numerics.Vector2> { place.Center };
+        if (Str(input, "line_to") is { } lt)
+        {
+            var end = PlaceOf(lt);
+            if (end == null) return $"場所「{lt}」が見つかりません";
+            points.Add(end.Center);
+        }
+        var marker = T.Markers.FirstOrDefault(m => m.Name == name);
+        string region = _w.Map.RegionName(place.Center);
+        T.Version++;
+        if (marker == null)
+        {
+            marker = new Marker { Name = name, Points = points.Select(p => _w.Map.NearestPassable(p)).ToList() };
+            T.Markers.Add(marker);
+            return $"目印「{name}」を{region}に置く";
+        }
+        int moved = _w.MoveMarker(_team, marker, points);
+        return $"目印「{name}」を{region}へ動かす{(moved > 0 ? $"(持ち場にしている{moved}役割も移動)" : "")}";
+    }
+
+    private string DeleteMarker(JsonElement input)
+    {
+        string name = (Str(input, "name") ?? "").Trim();
+        int n = T.Markers.RemoveAll(m => m.Name == name);
+        T.Version++;
+        return n > 0 ? $"目印「{name}」を消す" : $"目印「{name}」はありません";
+    }
+
     private string Garrison(JsonElement input)
     {
         if (Str(input, "action") == "leave")
@@ -571,16 +613,46 @@ public sealed class Applier
             case "adjust_role":
             {
                 var role = op.FindRole(Str(call.Input, "role") ?? "");
-                if (role == null) return "";
+                if (role == null) return $"役割「{Str(call.Input, "role")}」がありません";
                 var problems = new List<string>();
-                var patch = ReadRule(call.Input, problems);
-                if (problems.Count > 0 || patch.IsEmpty) return "";
+                var patch = ReadRule(call.Input, problems, op);
+                if (patch.IsEmpty) return problems.Count > 0 ? string.Join("、", problems) : "";
                 if (role.Apply(patch, _w.Time))
                 {
-                    op.Log(_w.Time, $"部隊長の判断: {Str(call.Input, "reason") ?? role.Name + "を調整"}");
+                    op.Log(_w.Time, $"部隊長: {role.Name} {Str(call.Input, "reason") ?? "を調整"}");
                     T.Version++;
                 }
-                return "";
+                return string.Join("、", problems);
+            }
+            case "split_role":
+            {
+                var from = op.FindRole(Str(call.Input, "from_role") ?? "");
+                if (from == null) return $"役割「{Str(call.Input, "from_role")}」がありません";
+                string newName = (Str(call.Input, "new_role") ?? "").Trim();
+                if (newName == "" || newName == from.Name) return "新しい役割名がありません";
+                int count = Math.Max(0, Int(call.Input, "count") ?? 0);
+                var problems = new List<string>();
+                var patch = ReadRule(call.Input, problems, op);
+                var target = op.Roles.FirstOrDefault(r => r.Name == newName);
+                if (target == null)
+                {
+                    target = new Role(newName, from.Anchor)
+                    {
+                        Kind = from.Kind, Stance = from.Stance, Kite = from.Kite, Formation = from.Formation,
+                        Priority = from.Priority.ToList(), Evade = from.Evade, Radius = from.Radius,
+                    };
+                    op.Roles.Add(target);
+                }
+                var units = _w.Members(op, from).Where(u => !u.IsInside)
+                    .OrderBy(u => patch.Anchor?.Distance(u.Pos) ?? 0).Take(count).ToList();
+                foreach (var u in units) u.Role = target.Name;
+                target.InitialCount = _w.Members(op, target).Count();
+                if (!patch.IsEmpty) target.Apply(patch, _w.Time);
+                target.Superseded = "";
+                op.Roles.RemoveAll(r => !_w.Members(op, r).Any() && r.Trigger == null && op.Roles.Count > 1);
+                op.Log(_w.Time, $"部隊長: {from.Name}から{units.Count}体を{target.Name}に分ける({Str(call.Input, "reason") ?? ""})");
+                T.Version++;
+                return string.Join("、", problems);
             }
         }
         return "";

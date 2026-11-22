@@ -126,12 +126,18 @@ public sealed partial class World
         return tc == null ? null : new Vector2(tc.TileX + 1.5f, tc.TileY + 1.5f);
     }
 
-    /// <summary>場所の名前を座標にする。プレイヤーの目印、地名、自軍基地・敵基地(見つけていれば)。</summary>
-    public Place? ResolvePlace(int team, string name)
+    /// <summary>
+    /// 場所の名前を座標にする。プレイヤーの目印、地名、自軍基地・敵基地(見つけていれば)、集合地点に加えて、
+    /// 相対的な書き方も読む(<see cref="PlaceExpr"/>)。
+    /// </summary>
+    public Place? ResolvePlace(int team, string name, Operation? self = null) => PlaceExpr.Resolve(this, team, name, self);
+
+    /// <summary>名前だけで決まる場所(目印・地名・基地・集合地点・部隊の位置)。</summary>
+    internal Place? ResolveBasePlace(int team, string name, Operation? self)
     {
         var ts = Teams[team];
         string n = name.Trim();
-        // LLM は「西の基地付近」「enemy_base(東の基地付近)」のように飾りを付けることがある。
+        // LLM は「西の平地付近」「enemy_base(東の平地付近)」のように飾りを付けることがある。
         // そのままで見つからなければ、かっこ書きと「付近」「の近く」を外して探し直す
         if (!IsKnownPlace(team, n))
         {
@@ -142,23 +148,59 @@ public sealed partial class World
         if (marker != null) return marker.ToPlace();
         switch (n)
         {
-            case "own_base" or "自軍基地" or "基地":
+            case "own_base" or "自軍基地" or "基地" or "自陣":
                 return new Place("自軍基地", new[] { BasePos(team) });
             case "enemy_base" or "敵基地":
                 // 敵の本拠地は、敵の村の中心を見つけるまでわからない
                 return KnownEnemyBase(team) is { } eb ? new Place("敵基地", new[] { eb }) : null;
-            case "rally" or "集合地点":
+            case "rally" or "集合地点" or "集合場所" or "待機位置":
                 return new Place(ts.RallyName, new[] { ts.Rally });
         }
         var region = Map.FindRegion(n);
-        if (region == null) return null;
-        // 地名は両チームから見て同じ。own_base / enemy_base だけは見る側で入れ替える
-        return new Place(region.Name, new[] { region.Center });
+        if (region != null) return new Place(region.Name, new[] { region.Center });
+        // 部隊の今の位置:「現在地」「作戦/役割の位置」「役割の位置」「作戦の位置」
+        return UnitsPlace(team, n, self);
+    }
+
+    private Place? UnitsPlace(int team, string n, Operation? self)
+    {
+        var ts = Teams[team];
+        string key = n;
+        foreach (var suffix in new[] { "の現在地", "の位置", "のいる場所", "がいる場所", "の場所" })
+            if (key.EndsWith(suffix)) { key = key[..^suffix.Length]; break; }
+        IEnumerable<Unit>? units = null;
+        if (key is "現在地" or "今の位置" or "その場")
+        {
+            if (self == null) return null;
+            units = Members(self);
+        }
+        else if (key.Split('/', '／') is { Length: 2 } parts)
+        {
+            var op = ts.FindOp(parts[0]);
+            var role = op?.FindRole(parts[1]);
+            if (op != null && role != null) units = Members(op, role);
+        }
+        else
+        {
+            var op = ts.FindOp(key);
+            if (op != null) units = Members(op);
+            else
+            {
+                // 役割名か兵種名(自分の作戦を優先、なければ全作戦)
+                var ops = self != null ? new[] { self }.Concat(ts.ActiveOps.Where(o => o != self)) : ts.ActiveOps;
+                foreach (var o in ops)
+                    if (o.FindRole(key) is { } r && Members(o, r).Any()) { units = Members(o, r); break; }
+            }
+        }
+        var list = units?.Where(u => !u.IsInside).ToList();
+        if (list == null || list.Count == 0) return null;
+        var c = new Vector2(list.Average(u => u.Pos.X), list.Average(u => u.Pos.Y));
+        return new Place($"{n}({Map.RegionName(c)})", new[] { Map.NearestPassable(c) });
     }
 
     private bool IsKnownPlace(int team, string n) =>
         Teams[team].Markers.Any(m => m.Name == n) || Map.FindRegion(n) != null
-        || n is "own_base" or "自軍基地" or "基地" or "enemy_base" or "敵基地" or "rally" or "集合地点";
+        || n is "own_base" or "自軍基地" or "基地" or "自陣" or "enemy_base" or "敵基地" or "rally" or "集合地点" or "集合場所" or "待機位置";
 
     public static string NormalizePlaceName(string name)
     {
