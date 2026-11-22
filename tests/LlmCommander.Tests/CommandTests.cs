@@ -224,3 +224,15 @@ public class MarkerMoveTests
         Assert.Contains(op.Changes, c => c.Text.Contains("目印「防衛線A」を"));
     }
 }
+
+public class PlaceNameTests
+{
+    [Xunit.Fact]
+    public void DecoratedPlaceNamesResolve()
+    {
+        var w = LlmCommander.Sim.MapLayout.CreateValley();
+        Xunit.Assert.Equal("北の丘", w.ResolvePlace(0, "北の丘付近")!.Name);
+        Xunit.Assert.Equal("自軍基地", w.ResolvePlace(0, "own_base（西の平地付近）")!.Name);
+        Xunit.Assert.Null(w.ResolvePlace(0, "enemy_base（東の平地付近）")); // まだ見つけていない
+    }
+}

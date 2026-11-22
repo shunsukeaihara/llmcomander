@@ -388,6 +388,13 @@ public partial class Main : Node2D
                 {
                     _listening = true;
                     _voice.Start();
+                    // 話し始める直前(数秒以内)に地面をクリックしていたら、そこを指示点1にする
+                    if (_lastGroundClick is { } lc && Time.GetTicksMsec() - lc.at < LastClickWindowMs)
+                    {
+                        _clicks.Add(lc.tile);
+                        _overlay.SpeakingClicks = _clicks.ToList();
+                    }
+                    _lastGroundClick = null;
                 }
                 else if (!k.Pressed && _listening)
                 {
@@ -466,7 +473,7 @@ public partial class Main : Node2D
         {
             // 選択していれば直接指示(移動・攻撃・採集・建設・こもり)、していなければ目印を消す
             if (_selected.Count > 0) ManualOrder(MouseTile());
-            else RemoveMarkerNear(MouseTile());
+            else RemoveMarkerAt(GetGlobalMousePosition());
         }
         else if (mb.ButtonIndex == MouseButton.Left)
         {
@@ -535,9 +542,14 @@ public partial class Main : Node2D
             _selected.Add(u.Id);
             return;
         }
-        // 何もない地面のクリックは選択を外すだけ
+        // 何もない地面のクリックは選択を外す。直後に話し始めたら指示点として使う
         if (!add) _selected.Clear();
+        _lastGroundClick = (t, Time.GetTicksMsec());
     }
+
+    /// <summary>直前に地面をクリックした場所と時刻。話し始めがこの時間内なら指示点にする。</summary>
+    private (SVec tile, ulong at)? _lastGroundClick;
+    private const ulong LastClickWindowMs = 6000;
 
     /// <summary>
     /// タイルを、地図が見えている部分(右の作戦パネルを除いた範囲)の中央に持ってくる。
@@ -592,15 +604,12 @@ public partial class Main : Node2D
         _log?.Write("ui", new { action = "add_marker", name, region = points.Select(p => _world.Map.RegionName(p)) });
     }
 
-    private void RemoveMarkerNear(SVec tile)
+    /// <summary>目印の真上(地点・線の端・線の途中)を右クリックしたときだけ消す。</summary>
+    private void RemoveMarkerAt(Vector2 world)
     {
-        var ts = _world.Teams[0];
-        var m = ts.Markers.OrderBy(m => m.ToPlace().Distance(tile)).FirstOrDefault();
-        if (m != null && m.ToPlace().Distance(tile) < 2)
-        {
-            ts.Markers.Remove(m);
-            _log?.Write("ui", new { action = "remove_marker", name = m.Name });
-        }
+        if (HitMarker(world) is not { } hit) return;
+        _world.Teams[0].Markers.Remove(hit.Item1);
+        _log?.Write("ui", new { action = "remove_marker", name = hit.Item1.Name });
     }
 
     private void SelectIn(Vector2 a, Vector2 b, bool add)

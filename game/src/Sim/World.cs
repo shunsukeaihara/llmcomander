@@ -129,8 +129,15 @@ public sealed partial class World
     /// <summary>場所の名前を座標にする。プレイヤーの目印、地名、自軍基地・敵基地(見つけていれば)。</summary>
     public Place? ResolvePlace(int team, string name)
     {
-        string n = name.Trim();
         var ts = Teams[team];
+        string n = name.Trim();
+        // LLM は「西の基地付近」「enemy_base(東の基地付近)」のように飾りを付けることがある。
+        // そのままで見つからなければ、かっこ書きと「付近」「の近く」を外して探し直す
+        if (!IsKnownPlace(team, n))
+        {
+            string bare = NormalizePlaceName(n);
+            if (bare != "") n = bare;
+        }
         var marker = ts.Markers.FirstOrDefault(m => m.Name == n);
         if (marker != null) return marker.ToPlace();
         switch (n)
@@ -147,6 +154,18 @@ public sealed partial class World
         if (region == null) return null;
         // 地名は両チームから見て同じ。own_base / enemy_base だけは見る側で入れ替える
         return new Place(region.Name, new[] { region.Center });
+    }
+
+    private bool IsKnownPlace(int team, string n) =>
+        Teams[team].Markers.Any(m => m.Name == n) || Map.FindRegion(n) != null
+        || n is "own_base" or "自軍基地" or "基地" or "enemy_base" or "敵基地" or "rally" or "集合地点";
+
+    public static string NormalizePlaceName(string name)
+    {
+        string n = System.Text.RegularExpressions.Regex.Replace(name, @"[（(][^）)]*[）)]", "");
+        foreach (var suffix in new[] { "付近", "の近く", "周辺", "あたり", "辺り" })
+            if (n.EndsWith(suffix)) n = n[..^suffix.Length];
+        return n.Trim();
     }
 
     public Role? RoleOf(Unit u)

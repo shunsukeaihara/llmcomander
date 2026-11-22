@@ -235,7 +235,7 @@ public static class Context
     public static string SpeechHint(World w, int team)
     {
         var ts = w.Teams[team];
-        var words = new List<string> { "槍", "弓", "騎兵", "村人", "引き撃ち", "撤退", "横隊", "兵舎", "村の中心", "金鉱" };
+        var words = new List<string> { "槍", "弓", "騎兵", "村人", "引き撃ち", "撤退", "横隊", "兵舎", "村の中心", "金鉱", "斥候", "偵察", "探索", "同心円状", "待機位置", "集合場所", "指示点", "こもる" };
         words.AddRange(w.Map.Regions.Select(r => r.Name));
         words.AddRange(ts.Markers.Select(m => m.Name));
         words.AddRange(ts.ActiveOps.Select(o => o.Name));
