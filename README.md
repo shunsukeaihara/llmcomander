@@ -54,7 +54,12 @@
 
 ## プレイログ
 
-1試合ごとに、ユーザーデータフォルダの `logs/` に JSONL ファイルが1つ作られます(F9 で開けます。Windows では `%APPDATA%\Godot\app_userdata\LLM Commander\logs`)。記録する内容は次のとおりです。
+1試合ごとに JSONL ファイルが1つ作られます。上部バーの「ログ」ボタン(または F9。Mac では fn+F9)でフォルダが開きます。保存先は次のとおりです(起動時に Godot の出力パネルにも表示されます)。
+
+- Godot のエディタから起動したとき: `game/logs/`(git には入りません)
+- 書き出したゲーム: ユーザーデータのフォルダの `logs/`(Mac: `~/Library/Application Support/Godot/app_userdata/LLM Commander/logs`、Windows: `%APPDATA%\Godot\app_userdata\LLM Commander\logs`)
+
+記録する内容は次のとおりです。
 
 - 発話ごと: 音声認識の結果と時間、LLMに渡した状況の全文、返ってきた命令とその適用結果、応答時間
 - 作戦ごとの担当LLMの呼び出し、条件の発動、警報、ボタン操作、目印の追加と削除

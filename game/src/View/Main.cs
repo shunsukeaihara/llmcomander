@@ -59,9 +59,16 @@ public partial class Main : Node2D
         _llmProblem = setup.Problem;
 
         // プレイログ: ユーザーデータの logs/ に1試合1ファイル(LLMC_LOG_DIR で変更可)
+        // エディタから起動したときはプロジェクトの中(game/logs、git には入らない)に置いて見つけやすくする。
+        // 書き出したゲームではユーザーデータのフォルダ。LLMC_LOG_DIR で変えられる
         var logDir = OS.GetEnvironment("LLMC_LOG_DIR");
-        if (logDir == "") logDir = OS.GetUserDataDir() + "/logs";
+        if (logDir == "")
+            logDir = OS.HasFeature("editor") ? ProjectSettings.GlobalizePath("res://logs") : OS.GetUserDataDir() + "/logs";
         _log = PlayLog.Open(logDir, _world);
+        // プロジェクトの中に置くときは、Godot が素材として読み込まないよう除外の印を置く
+        if (_log != null && logDir.StartsWith(ProjectSettings.GlobalizePath("res://")) && !System.IO.File.Exists(logDir + "/.gdignore"))
+            System.IO.File.WriteAllText(logDir + "/.gdignore", "");
+        GD.Print(_log != null ? $"プレイログ: {_log.Path}" : $"プレイログを作れませんでした: {logDir}");
         _log?.Start(settings);
         if (_cc != null) _cc.Log = _log;
         if (speech == null) _micNote = "  (音声認識なし: OPENAI_API_KEY 未設定)";
@@ -101,6 +108,7 @@ public partial class Main : Node2D
         _hud.TextSubmitted += t => Submit(t, null);
         _hud.Minimap.World = _world;
         _hud.CardPicked += JumpToCard;
+        _hud.LogPicked += OpenLogFolder;
         _hud.AlertPicked += () => { _alertCursor = 0; JumpToAlert(); };
         _hud.Minimap.Picked += (tile, press) =>
         {
@@ -191,6 +199,11 @@ public partial class Main : Node2D
     private int _perfFrames;
     private double _perfTimer;
     private PlayLog? _log;
+
+    private void OpenLogFolder()
+    {
+        if (_log != null) OS.ShellOpen(System.IO.Path.GetDirectoryName(_log.Path)!);
+    }
     private string? _llmProblem;
     private double _nextPoll, _nextSnapshot;
     private bool _logEnded;
@@ -403,8 +416,7 @@ public partial class Main : Node2D
                         _world.Vision[0].Enabled = !_world.Vision[0].Enabled;
                         break;
                     case Key.F9:
-                        // ログのフォルダを開く
-                        if (_log != null) OS.ShellOpen(System.IO.Path.GetDirectoryName(_log.Path)!);
+                        OpenLogFolder();
                         break;
                     case Key.P: _paused = !_paused; break;
                 }

@@ -17,6 +17,8 @@ public partial class Hud : CanvasLayer
     public event Action<string>? CardPicked;
     /// <summary>上部バーの警報が押された。</summary>
     public event Action? AlertPicked;
+    /// <summary>上部バーの「ログ」ボタンが押された。</summary>
+    public event Action? LogPicked;
     private Button _alert = null!;
 
     private Label _resources = null!;
@@ -80,6 +82,9 @@ public partial class Hud : CanvasLayer
         _alert.Pressed += () => AlertPicked?.Invoke();
         topRow.AddChild(_alert);
         topRow.AddChild(_llmState);
+        var logButton = new Button { Text = "ログ", Flat = true, FocusMode = Control.FocusModeEnum.None, TooltipText = "プレイログのフォルダを開く(F9)" };
+        logButton.Pressed += () => LogPicked?.Invoke();
+        topRow.AddChild(logButton);
         _toggle = new Button { Text = "作戦パネルを閉じる (C)", Flat = true, FocusMode = Control.FocusModeEnum.None };
         _toggle.Pressed += TogglePanel;
         topRow.AddChild(_toggle);

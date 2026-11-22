@@ -11,3 +11,6 @@ obj/
 # sprite pipeline
 tools/sprites/.venv/
 tools/sprites/build/
+
+# プレイログ(エディタから起動したとき)
+game/logs/
