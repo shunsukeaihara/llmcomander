@@ -6,9 +6,7 @@ namespace LlmCommander.Llm;
 
 /// <summary>
 /// 設定の読み込み。環境変数を優先し、なければプロジェクト直下の .env を読む。
-///   ANTHROPIC_API_KEY, OPENAI_API_KEY,
-///   COMMANDER_MODEL(既定 claude-opus-5-5), OFFICER_MODEL(既定 claude-haiku-5-5),
-///   STT_MODEL(既定 gpt-4o-transcribe)
+///   キーとモデルの一覧は LlmSetup を参照。
 /// </summary>
 public sealed class Config
 {

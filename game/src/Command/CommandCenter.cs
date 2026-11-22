@@ -11,9 +11,9 @@ namespace LlmCommander.Command;
 
 public sealed class LlmSettings
 {
-    public string CommanderModel = "claude-opus-5-5";
+    public string CommanderModel = "gpt-5.4-mini";
     public string CommanderEffort = "low";
-    public string OfficerModel = "claude-haiku-5-5";
+    public string OfficerModel = "gpt-5.4-nano";
     public string OfficerEffort = "low";
     /// <summary>担当LLMを呼ぶ間隔(秒、ゲーム内時間)。出来事があればもっと早く呼ぶ。</summary>
     public double OfficerInterval = 6;

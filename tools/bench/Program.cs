@@ -1,6 +1,6 @@
 // 司令LLMと担当LLMの応答時間と出力を測る。ゲーム画面は使わない。
 //   dotnet run -- [発話 ...]    (省略時は用意した発話を順に流す)
-// 設定は game/.env か環境変数(ANTHROPIC_API_KEY, COMMANDER_MODEL, OFFICER_MODEL, COMMANDER_EFFORT)。
+// 設定は game/.env か環境変数(OPENAI_API_KEY ほか。一覧は game/src/Llm/LlmSetup.cs)。
 using System.Diagnostics;
 using System.Numerics;
 using System.Text.Json;
@@ -10,15 +10,11 @@ using LlmCommander.Sim;
 using LlmCommander.View;
 
 var config = Config.Load(Path.Combine(AppContext.BaseDirectory, "../../../../../game/.env"));
-var key = config.Get("ANTHROPIC_API_KEY");
-if (key == null) { Console.Error.WriteLine("ANTHROPIC_API_KEY がありません"); return 1; }
-var llm = new AnthropicLlm(key, config.Get("ANTHROPIC_API_URL"));
-var settings = new LlmSettings
-{
-    CommanderModel = config.Get("COMMANDER_MODEL", "claude-opus-5-5"),
-    CommanderEffort = config.Get("COMMANDER_EFFORT", "low"),
-    OfficerModel = config.Get("OFFICER_MODEL", "claude-haiku-5-5"),
-};
+var setup = LlmSetup.From(config);
+if (setup.Llm == null) { Console.Error.WriteLine(setup.Problem); return 1; }
+var llm = setup.Llm;
+var settings = setup.Settings;
+Console.WriteLine($"LLM: {setup.Provider} / 司令役 {settings.CommanderModel} / 担当 {settings.OfficerModel}");
 
 // 交戦が始まった直後の場面を作る
 var w = MapLayout.CreateValley();

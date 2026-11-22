@@ -285,7 +285,7 @@ public partial class Hud : CanvasLayer
 
     // ------------------------------------------------------------ 更新
 
-    public void Refresh(World w, CommandCenter? cc, bool listening, string micNote)
+    public void Refresh(World w, CommandCenter? cc, bool listening, string micNote, string? llmProblem = null)
     {
         var ts = w.Teams[0];
         var recent = ts.Alerts.LastOrDefault();
@@ -294,7 +294,7 @@ public partial class Hud : CanvasLayer
         if (showAlert && _alert.Text != "⚠ " + recent!.Text + "(N)") _alert.Text = "⚠ " + recent.Text + "(N)";
         SetText(_resources, $"食 {(int)ts.Stock[Res.Food]}   木 {(int)ts.Stock[Res.Wood]}   金 {(int)ts.Stock[Res.Gold]}   人口 {w.Pop(0)}/{Defs.PopCap}");
         SetText(_clock, Context.Clock(w.Time));
-        SetText(_llmState, cc == null ? "LLM未設定(.env に ANTHROPIC_API_KEY)" :
+        SetText(_llmState, cc == null ? $"LLM未設定({llmProblem ?? "キーがありません"})" :
             cc.InFlight > 0 ? $"LLM 実行中 {cc.InFlight}" : cc.LastError != "" ? "LLMエラー: " + cc.LastError[..Math.Min(40, cc.LastError.Length)] : "LLM 待機");
 
         var keys = new HashSet<string>();

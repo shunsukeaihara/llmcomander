@@ -118,7 +118,7 @@ UIモック: https://claude.ai/artifact/CpjfajogNU6hjMcg4Me46S (非公開。閲�
 - **Godot 4(C#)で全部作る**。描画、UI、シミュレーション、マイク入力、LLMと音声認識の呼び出しまで、一つのプロセスで行う。
   - LLMは公式の C# SDK(Anthropic / OpenAI)から呼ぶ。作戦ごとの担当LLMは async で並列に呼ぶ。
   - APIキーはゲーム本体が持つ。他人に配る段階で、各自がキーを入れるか中継サーバーを立てるかを決める。
-- LLMと音声認識は、クラウドのAPI(Claude または OpenAI)を使う。PoCの段階では、API費用より応答の質と速さを優先する。
+- LLMと音声認識は、クラウドのAPIを使う。キーを1つにするため、既定は OpenAI だけで動かす(司令役 gpt-5.4-mini、作戦ごとの担当 gpt-5.4-nano、音声認識 gpt-4o-transcribe)。Claude も設定で選べる。PoCの段階では、API費用より応答の質と速さを優先する。
 
 ## 10. PoCの範囲と現状
 

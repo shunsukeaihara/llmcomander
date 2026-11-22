@@ -52,16 +52,11 @@ public partial class Main : Node2D
         _ai = new EnemyAI(_world);
 
         var config = Config.Load(ProjectSettings.GlobalizePath("res://.env"));
-        var settings = new LlmSettings
-        {
-            CommanderModel = config.Get("COMMANDER_MODEL", "claude-opus-5-5"),
-            CommanderEffort = config.Get("COMMANDER_EFFORT", "low"),
-            OfficerModel = config.Get("OFFICER_MODEL", "claude-haiku-5-5"),
-        };
-        var anthropicKey = config.Get("ANTHROPIC_API_KEY");
-        var openaiKey = config.Get("OPENAI_API_KEY");
-        ISpeech? speech = openaiKey != null ? new OpenAiSpeech(openaiKey, config.Get("STT_MODEL", "gpt-4o-transcribe")) : null;
-        if (anthropicKey != null) _cc = new CommandCenter(_world, 0, new AnthropicLlm(anthropicKey), speech, settings);
+        var setup = LlmSetup.From(config);
+        var settings = setup.Settings;
+        var speech = setup.Speech;
+        if (setup.Llm != null) _cc = new CommandCenter(_world, 0, setup.Llm, speech, settings);
+        _llmProblem = setup.Problem;
 
         // プレイログ: ユーザーデータの logs/ に1試合1ファイル(LLMC_LOG_DIR で変更可)
         var logDir = OS.GetEnvironment("LLMC_LOG_DIR");
@@ -187,7 +182,7 @@ public partial class Main : Node2D
             _hudTimer = 0.3;
             _selected.RemoveWhere(id => !_world.Units.ContainsKey(id));
             long hp = ViewPerf.Begin();
-            _hud.Refresh(_world, _cc, _listening, _micNote);
+            _hud.Refresh(_world, _cc, _listening, _micNote, _llmProblem);
             ViewPerf.End("UI更新", hp);
         }
     }
@@ -195,6 +190,7 @@ public partial class Main : Node2D
     private int _perfFrames;
     private double _perfTimer;
     private PlayLog? _log;
+    private string? _llmProblem;
     private double _nextPoll, _nextSnapshot;
     private bool _logEnded;
 
@@ -340,7 +336,7 @@ public partial class Main : Node2D
             _world.Teams[0].History.Add(new HistoryEntry
             {
                 Time = _world.Time, Utterance = text != "" ? text : "(音声)", Pending = false, Failed = true,
-                Result = "LLMが設定されていません。game/.env に ANTHROPIC_API_KEY を書いてください",
+                Result = $"LLMが使えません: {_llmProblem}。game/.env に書いてください",
             });
             return;
         }

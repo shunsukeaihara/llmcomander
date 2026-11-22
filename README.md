@@ -9,7 +9,7 @@
 
 必要なもの: [Godot 4.7(.NET版)](https://godotengine.org/download)、.NET SDK 8 以上、マイク(音声を使う場合)
 
-1. `game/.env.example` を `game/.env` にコピーして、`ANTHROPIC_API_KEY`(必須)と `OPENAI_API_KEY`(音声認識用)を書く。
+1. `game/.env.example` を `game/.env` にコピーして、`OPENAI_API_KEY` を書く。司令役・作戦ごとの担当・音声認識をすべて OpenAI で動かすので、キーはこれ1つです(Claude を使う場合は `LLM_PROVIDER=anthropic` と `ANTHROPIC_API_KEY`)。
 2. Godot で `game/project.godot` を開き、ビルドして実行する(F5)。
 
 キーがなくてもゲーム自体は動きます(指示は受け付けません)。
@@ -74,7 +74,7 @@ dotnet run                        # 用意した発話を順に流す
 dotnet run -- "騎兵で敵の弓を狙え"   # 任意の発話
 ```
 
-`game/.env` のキーとモデル設定を使います。`COMMANDER_MODEL=claude-sonnet-5-5` などに変えて比べられます。
+`game/.env` のキーとモデル設定を使います。`COMMANDER_MODEL=gpt-5.5` などに変えて比べられます。
 
 ## 構成
 
@@ -82,7 +82,7 @@ dotnet run -- "騎兵で敵の弓を狙え"   # 任意の発話
 |---|---|
 | `game/src/Sim` | シミュレーション(マップ、経路探索、経済、戦闘、作戦と交戦規則、敵AI)。Godot に依存しない |
 | `game/src/Command` | LLM に渡す状況の要約、ツール定義、ツール呼び出しの適用、非同期の実行管理 |
-| `game/src/Llm` | Claude と OpenAI 音声認識の呼び出し |
+| `game/src/Llm` | OpenAI(LLM と音声認識)と Claude の呼び出し、設定の読み込み |
 | `game/src/View` | 描画、UI、入力、マイク録音 |
 | `tests/` | シミュレーションと指揮層のテスト(`dotnet test tests/LlmCommander.Tests`) |
 | `tools/sprites` | Blender でユニットのドット絵を作る工程 |
