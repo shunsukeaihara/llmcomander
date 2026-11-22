@@ -175,3 +175,23 @@ public class CommandTests
         Assert.Contains(w.Teams[0].Markers, m => m.Name == "指示点1");
     }
 }
+
+public class RetreatDefaultTests
+{
+    [Fact]
+    public void RetreatWithoutPlaceGoesToRally()
+    {
+        var w = MapLayout.CreateValley();
+        for (int i = 0; i < 4; i++) w.SpawnUnit(0, UnitKind.Spearman, new System.Numerics.Vector2(30, 40));
+        var ap = new Applier(w, 0);
+        ap.Apply(new ToolCall("update_operation", System.Text.Json.JsonDocument.Parse("""
+            {"operation": "前線", "change_summary": "", "roles": [{"role": "槍", "unit_kind": "spearman", "stance": "hold", "place": "中央"}]}
+            """).RootElement.Clone()), "", Array.Empty<int>());
+        ap.Apply(new ToolCall("update_operation", System.Text.Json.JsonDocument.Parse("""
+            {"operation": "前線", "change_summary": "", "roles": [{"role": "槍", "stance": "retreat"}]}
+            """).RootElement.Clone()), "", Array.Empty<int>());
+        var role = w.Teams[0].FindOp("前線")!.FindRole("槍")!;
+        Assert.Equal(Stance.Retreat, role.Stance);
+        Assert.Equal("集合地点", role.Anchor.Name);
+    }
+}

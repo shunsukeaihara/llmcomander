@@ -6,9 +6,9 @@ namespace LlmCommander.Llm;
 /// 設定から LLM と音声認識を用意する。既定は OpenAI だけで動く(必要なキーは OPENAI_API_KEY の1つ)。
 ///   LLM_PROVIDER     openai(既定)/ anthropic
 ///   COMMANDER_MODEL  司令役のモデル(既定 openai: gpt-5.4-mini、anthropic: claude-opus-5-5)
-///   COMMANDER_EFFORT 推論の深さ(既定 low)
+///   COMMANDER_EFFORT 推論の深さ(既定 openai: none、anthropic: low)
 ///   OFFICER_MODEL    作戦ごとの担当のモデル(既定 openai: gpt-5.4-nano、anthropic: claude-haiku-5-5)
-///   OFFICER_EFFORT   推論の深さ(既定 low)
+///   OFFICER_EFFORT   推論の深さ(既定 openai: none、anthropic: low)
 ///   STT_MODEL        音声認識のモデル(既定 gpt-4o-transcribe)
 /// </summary>
 public sealed record LlmSetup(ILlm? Llm, ISpeech? Speech, LlmSettings Settings, string Provider, string? Problem)
@@ -20,9 +20,10 @@ public sealed record LlmSetup(ILlm? Llm, ISpeech? Speech, LlmSettings Settings, 
         var settings = new LlmSettings
         {
             CommanderModel = config.Get("COMMANDER_MODEL", anthropic ? "claude-opus-5-5" : "gpt-5.4-mini"),
-            CommanderEffort = config.Get("COMMANDER_EFFORT", "low"),
+            // OpenAI のチャットAPIでは、関数呼び出しと推論は併用できない(推論の深さは none のみ)
+            CommanderEffort = config.Get("COMMANDER_EFFORT", anthropic ? "low" : "none"),
             OfficerModel = config.Get("OFFICER_MODEL", anthropic ? "claude-haiku-5-5" : "gpt-5.4-nano"),
-            OfficerEffort = config.Get("OFFICER_EFFORT", "low"),
+            OfficerEffort = config.Get("OFFICER_EFFORT", anthropic ? "low" : "none"),
         };
         var openaiKey = config.Get("OPENAI_API_KEY");
         ISpeech? speech = openaiKey != null ? new OpenAiSpeech(openaiKey, config.Get("STT_MODEL", "gpt-4o-transcribe")) : null;

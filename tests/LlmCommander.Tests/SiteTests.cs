@@ -68,3 +68,21 @@ public class SiteFilterTests
         Assert.All(tcs, c => Assert.True(c.FromEnemyBase > 15, $"{c.Region} は敵基地から {c.FromEnemyBase}"));
     }
 }
+
+public class LatestPlanTests
+{
+    [Fact]
+    public void TheNewestProposalIsMarked()
+    {
+        var w = MapLayout.CreateValley();
+        var ap = new Applier(w, 0);
+        ap.Apply(new ToolCall("propose_build", JsonDocument.Parse("""{"building": "town_center", "near": "北の金鉱"}""").RootElement.Clone()), "", Array.Empty<int>());
+        ap.Apply(new ToolCall("propose_build", JsonDocument.Parse("""{"building": "barracks", "near": "own_base"}""").RootElement.Clone()), "", Array.Empty<int>());
+        var text = Context.EconomyText(w, w.Teams[0]);
+        var lines = text.Split('\n').Where(l => l.StartsWith("建設計画")).ToList();
+        Assert.Equal(2, lines.Count);
+        Assert.DoesNotContain("直前の提案", lines[0]);
+        Assert.Contains("兵舎", lines[1]);
+        Assert.Contains("直前の提案", lines[1]);
+    }
+}

@@ -39,7 +39,9 @@ var times = new List<double>();
 var firsts = new List<double>();
 foreach (var u in utterances)
 {
-    var user = Context.Commander(w, 0, new UtteranceContext(), u);
+    // ゲームと同じく、LLMに見せた建設候補地を命令の適用にも使う
+    var sites = Context.Sites(w, 0);
+    var user = Context.Commander(w, 0, new UtteranceContext(), u, sites);
     var req = new LlmRequest(settings.CommanderModel, settings.CommanderEffort, Tools.CommanderSystem, user, Tools.CommanderTools);
     var sw = Stopwatch.StartNew();
     double? first = null;
@@ -52,7 +54,7 @@ foreach (var u in utterances)
     catch (Exception ex)
     {
         // API のエラー(残高不足・キーの誤り・混雑など)は内容だけ出して終える
-        Console.Error.WriteLine($"「{u}」でLLMの呼び出しに失敗しました: {ex.Message.Split('\n')[0]}");
+        Console.Error.WriteLine($"「{u}」でLLMの呼び出しに失敗しました: {ex.Message}");
         return 1;
     }
     times.Add(sw.Elapsed.TotalSeconds);
@@ -62,7 +64,7 @@ foreach (var u in utterances)
     foreach (var c in reply.Calls)
     {
         Console.WriteLine($"  {c.Name} {JsonSerializer.Serialize(c.Input, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })}");
-        Console.WriteLine($"    → {applier.Apply(c, u, Array.Empty<int>())}");
+        Console.WriteLine($"    → {applier.Apply(c, u, Array.Empty<int>(), sites)}");
     }
     for (int i = 0; i < 20 * 2; i++) w.Step();
 }
@@ -78,7 +80,7 @@ try
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"担当LLMの呼び出しに失敗しました: {ex.Message.Split('\n')[0]}");
+    Console.Error.WriteLine($"担当LLMの呼び出しに失敗しました: {ex.Message}");
     return 1;
 }
 Console.WriteLine($"\n=== 担当LLM({settings.OfficerModel}) {osw.Elapsed.TotalSeconds:0.00}秒 {oreply.Error}");

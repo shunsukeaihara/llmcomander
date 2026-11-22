@@ -94,7 +94,8 @@ public sealed class Applier
                 "propose_build" => ProposeBuild(call.Input, sites),
                 "confirm_build" => Confirm(call.Input, true),
                 "cancel_build" => Confirm(call.Input, false),
-                "reply" => "返答: " + (Str(call.Input, "text") ?? ""),
+                // 中身のない返答は無視する(命令に添えて空の reply が付いてくることがある)
+                "reply" => string.IsNullOrWhiteSpace(Str(call.Input, "text")) ? "" : "返答: " + Str(call.Input, "text"),
                 _ => $"不明な命令 {call.Name}",
             };
         }
@@ -164,6 +165,9 @@ public sealed class Applier
                     done.Add($"{role.Name}: 条件「{tr.Text}」");
                 }
             }
+            // 撤退先が書かれていなければ集合地点へ下がる(今の持ち場のままだと下がらないため)
+            if (patch.Stance == Stance.Retreat && patch.Anchor == null)
+                patch.Anchor = _w.ResolvePlace(_team, "rally");
             if (!patch.IsEmpty) role.Apply(patch, _w.Time);
         }
 

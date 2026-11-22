@@ -53,9 +53,12 @@ public static class Context
         var blds = w.TeamBuildings(ts.Team).GroupBy(b => (b.Kind, b.Done))
             .Select(g => $"{Defs.Ja(g.Key.Kind)}{(g.Key.Done ? "" : "(建設中)")}×{g.Count()}");
         sb.AppendLine("建物: " + string.Join(", ", blds));
+        // 確認待ちのうち一番新しいものに印を付ける(「OK」だけならこれを指すことが多い)
+        int latest = ts.Plans.Where(p => p.Status == PlanStatus.Proposed).Select(p => p.Id).DefaultIfEmpty(-1).Max();
         foreach (var p in ts.Plans.Where(p => p.Status is PlanStatus.Proposed or PlanStatus.Confirmed))
             sb.AppendLine($"建設計画 #{p.Id}: {Defs.Ja(p.Kind)}({w.Map.RegionName(p.Center)}) " +
-                          (p.Status == PlanStatus.Proposed ? "確認待ち" : "確定・資源待ち"));
+                          (p.Status == PlanStatus.Proposed ? "確認待ち" : "確定・資源待ち") +
+                          (p.Id == latest ? "(直前の提案)" : ""));
         return sb.ToString();
     }
 
