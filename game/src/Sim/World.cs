@@ -157,6 +157,40 @@ public sealed partial class World
 
     // ------------------------------------------------------------ 1ステップ
 
+    /// <summary>
+    /// 目印を動かす。その目印を持ち場・行き先・条件の場所にしている役割も、新しい位置に合わせる。
+    /// 合わせた役割の数を返す。
+    /// </summary>
+    public int MoveMarker(int team, Marker marker, IReadOnlyList<Vector2> points)
+    {
+        var ts = Teams[team];
+        marker.Points = points.Select(p => Map.NearestPassable(p)).ToList();
+        var place = marker.ToPlace();
+        int changed = 0;
+        foreach (var op in ts.ActiveOps)
+        {
+            bool touched = false;
+            foreach (var role in op.Roles)
+            {
+                if (role.Anchor.Name == marker.Name)
+                {
+                    role.Anchor = place;
+                    role.Arrived = false;
+                    touched = true;
+                    changed++;
+                }
+                if (role.Trigger is { } tr)
+                {
+                    if (tr.Place?.Name == marker.Name) { tr.Place = place; touched = true; }
+                    if (tr.Then.Anchor?.Name == marker.Name) { tr.Then.Anchor = place; touched = true; }
+                }
+            }
+            if (touched) op.Log(Time, $"目印「{marker.Name}」を{Map.RegionName(place.Center)}付近へ移動");
+        }
+        ts.Version++;
+        return changed;
+    }
+
     /// <summary>新兵の集合場所を変える。予備の部隊もそこで待つ。</summary>
     public void SetRally(int team, Place place)
     {

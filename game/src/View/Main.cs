@@ -414,6 +414,21 @@ public partial class Main : Node2D
                 break;
             case InputEventMouseMotion mm:
                 if (_panning) _cam.Position -= mm.Relative / _cam.Zoom;
+                // 目印の上ではカーソルを移動用の形にして、つかめることを示す
+                if (_markerDrag == null && _pressAt == null && _tool == Tool.Select)
+                    Input.SetDefaultCursorShape(HitMarker(GetGlobalMousePosition()) != null ? Input.CursorShape.Move : Input.CursorShape.Arrow);
+                if (_markerDrag is { } drag)
+                {
+                    // つかんだ点(線なら端、線の途中なら線ごと)をマウスに合わせて動かす
+                    var t = MouseTile();
+                    var pts = drag.marker.Points;
+                    if (drag.index >= 0) pts[drag.index] = t;
+                    else
+                    {
+                        var delta = t - drag.grab;
+                        for (int i = 0; i < pts.Count; i++) pts[i] = drag.original[i] + delta;
+                    }
+                }
                 if (_pressAt is { } pa && _tool == Tool.Select && !_listening)
                 {
                     var screen = GetViewport().GetMousePosition();
@@ -469,6 +484,15 @@ public partial class Main : Node2D
                     _overlay.DraftLine = null;
                     _tool = Tool.Select;
                     break;
+                case Tool.Select when mb.Pressed && HitMarker(GetGlobalMousePosition()) is { } hit:
+                    // 目印の上を押したら、範囲選択ではなく目印のドラッグ
+                    _markerDrag = hit;
+                    break;
+                case Tool.Select when !mb.Pressed && _markerDrag is { } md:
+                    int n = _world.MoveMarker(0, md.marker, md.marker.Points.ToList());
+                    _log?.Write("ui", new { action = "move_marker", name = md.marker.Name, region = _world.Map.RegionName(md.marker.ToPlace().Center), roles = n });
+                    _markerDrag = null;
+                    break;
                 case Tool.Select when mb.Pressed:
                     _dragStart = GetGlobalMousePosition();
                     _pressAt = GetViewport().GetMousePosition();
@@ -521,6 +545,29 @@ public partial class Main : Node2D
         }
         _camTween = CreateTween();
         _camTween.TweenProperty(_cam, "position", target, 0.18).SetTrans(Tween.TransitionType.Cubic).SetEase(Tween.EaseType.Out);
+    }
+
+    /// <summary>ドラッグ中の目印。index は動かす点(-1 なら線ごと)。</summary>
+    private (Marker marker, int index, SVec grab, List<SVec> original)? _markerDrag;
+
+    /// <summary>画面上の位置の近くにある目印(地点・指示点・線の端・線の途中)。</summary>
+    private (Marker, int, SVec, List<SVec>)? HitMarker(Vector2 world)
+    {
+        const float grab = 12;
+        var tile = Iso.ToTile(world);
+        foreach (var m in _world.Teams[0].Markers.AsEnumerable().Reverse())
+        {
+            for (int i = 0; i < m.Points.Count; i++)
+                if (Iso.ToScreen(m.Points[i]).DistanceTo(world) < grab) return (m, m.Points.Count == 1 ? 0 : i, tile, m.Points.ToList());
+            if (m.Points.Count >= 2)
+            {
+                var a = Iso.ToScreen(m.Points[0]);
+                var b = Iso.ToScreen(m.Points[^1]);
+                var closest = Geometry2D.GetClosestPointToSegment(world, a, b);
+                if (closest.DistanceTo(world) < 8) return (m, -1, tile, m.Points.ToList());
+            }
+        }
+        return null;
     }
 
     private void AddMarker(List<SVec> points, string prefix)

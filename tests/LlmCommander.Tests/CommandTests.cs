@@ -195,3 +195,32 @@ public class RetreatDefaultTests
         Assert.Equal("集合地点", role.Anchor.Name);
     }
 }
+
+public class MarkerMoveTests
+{
+    [Fact]
+    public void MovingAMarkerMovesTheRolesAnchoredToIt()
+    {
+        var w = MapLayout.CreateValley();
+        var ts = w.Teams[0];
+        var line = new Marker { Name = "防衛線A", Points = { new System.Numerics.Vector2(27, 36), new System.Numerics.Vector2(35, 44) } };
+        ts.Markers.Add(line);
+        for (int i = 0; i < 4; i++) w.SpawnUnit(0, UnitKind.Spearman, new System.Numerics.Vector2(25, 50));
+        for (int i = 0; i < 2; i++) w.SpawnUnit(0, UnitKind.Cavalry, new System.Numerics.Vector2(25, 52));
+        new Applier(w, 0).Apply(new ToolCall("update_operation", System.Text.Json.JsonDocument.Parse("""
+            {"operation": "戦線A", "change_summary": "", "roles": [
+              {"role": "槍", "unit_kind": "spearman", "stance": "hold", "place": "防衛線A", "formation": "line"},
+              {"role": "騎兵", "unit_kind": "cavalry", "stance": "hold", "place": "中央",
+               "trigger": {"condition": "enemy_near", "place": "防衛線A", "radius": 4, "then": {"stance": "advance", "place": "防衛線A"}, "description": "線に敵が来たら突撃"}}]}
+            """).RootElement.Clone()), "", Array.Empty<int>());
+
+        var moved = new[] { new System.Numerics.Vector2(30, 46), new System.Numerics.Vector2(38, 54) };
+        int n = w.MoveMarker(0, line, moved);
+        Assert.Equal(1, n);
+        var op = ts.FindOp("戦線A")!;
+        Assert.Equal(moved[0], op.FindRole("槍")!.Anchor.Points[0]);
+        Assert.Equal(moved[1], op.FindRole("騎兵")!.Trigger!.Place!.Points[1]);
+        Assert.Equal(moved[0], op.FindRole("騎兵")!.Trigger!.Then.Anchor!.Points[0]);
+        Assert.Contains(op.Changes, c => c.Text.Contains("目印「防衛線A」を"));
+    }
+}
