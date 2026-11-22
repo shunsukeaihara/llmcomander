@@ -17,6 +17,9 @@ public partial class OverlayView : Node2D
     public Rect2? SelectBox;
     public List<SVec> SpeakingClicks = new();
     public (SVec a, SVec b)? DraftLine;
+    /// <summary>右クリックで指示した場所(少しの間だけ印を出す)。</summary>
+    public SVec FlashAt;
+    public double FlashTime = -999;
 
     public override void _Process(double delta) => QueueRedraw();
 
@@ -146,6 +149,13 @@ public partial class OverlayView : Node2D
             var s = Iso.ToScreen(SpeakingClicks[i]);
             DrawArc(s, 10, 0, Mathf.Tau, 20, Palette.Warn, 2.5f);
             Label(s + new Vector2(0, 20), $"指示点{i + 1}", new Color(0.05f, 0.07f, 0.09f), Palette.Warn, 11);
+        }
+
+        if (w.Time - FlashTime < 0.6)
+        {
+            float t = (float)((w.Time - FlashTime) / 0.6);
+            var c = Iso.ToScreen(FlashAt);
+            DrawArc(c, 6 + 14 * t, 0, Mathf.Tau, 20, new Color(Palette.Good, 1 - t), 2);
         }
 
         if (SelectBox is { } box)

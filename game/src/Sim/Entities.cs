@@ -57,6 +57,17 @@ public sealed class Unit : Entity
     public Anim Anim;
     public float AnimTime;
     public float LastFoughtAt = -999;
+
+    /// <summary>探索中の次の行き先と、それを決めた時刻。</summary>
+    public Vector2? ExploreGoal;
+    public float ExploreAt;
+    /// <summary>こもっている建物の Id(0 なら外にいる)。</summary>
+    public int Inside;
+    /// <summary>こもりに向かっている建物の Id。</summary>
+    public int GarrisonTarget;
+    /// <summary>直接指示で移動して待つ場所(村人用)。</summary>
+    public Vector2? ManualTarget;
+    public bool IsInside => Inside != 0;
 }
 
 public sealed class Building : Entity
@@ -70,6 +81,7 @@ public sealed class Building : Entity
     public readonly Queue<UnitKind> Queue = new();
     public float QueueTimer;
     public int PlanId;
+    public float ArrowCooldown;
 }
 
 public sealed class ResourceNode

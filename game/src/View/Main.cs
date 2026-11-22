@@ -73,6 +73,7 @@ public partial class Main : Node2D
         _hud = new Hud();
         AddChild(_hud);
         _overlay = new OverlayView { World = _world, Font = _hud.Font, Selected = _selected };
+        _view.Font = _hud.Font;
         AddChild(_overlay);
         _voice = new Voice();
         AddChild(_voice);
@@ -274,6 +275,21 @@ public partial class Main : Node2D
             CenterOn(r.Anchor.Center, smooth: true);
     }
 
+    /// <summary>右クリックの直接指示。結果は指示履歴に残す。</summary>
+    private void ManualOrder(SVec tile)
+    {
+        var applier = new Applier(_world, 0);
+        string result = applier.ManualOrder(_selected.ToList(), tile);
+        if (result == "") return;
+        _world.Teams[0].History.Add(new HistoryEntry
+        {
+            Time = _world.Time, Utterance = "(右クリック)", Result = result, Pending = false,
+        });
+        _log?.Write("ui", new { action = "manual_order", region = _world.Map.RegionName(tile), selected = _selected.Count, result });
+        _overlay.FlashAt = tile;
+        _overlay.FlashTime = _world.Time;
+    }
+
     private int _alertCursor;
     private double _lastAlertJump = -999;
 
@@ -420,7 +436,11 @@ public partial class Main : Node2D
         else if (mb.ButtonIndex == MouseButton.Middle)
             _panning = mb.Pressed;
         else if (mb.ButtonIndex == MouseButton.Right && mb.Pressed)
-            RemoveMarkerNear(MouseTile());
+        {
+            // 選択していれば直接指示(移動・攻撃・採集・建設・こもり)、していなければ目印を消す
+            if (_selected.Count > 0) ManualOrder(MouseTile());
+            else RemoveMarkerNear(MouseTile());
+        }
         else if (mb.ButtonIndex == MouseButton.Left)
         {
             var tile = MouseTile();
@@ -479,8 +499,8 @@ public partial class Main : Node2D
             _selected.Add(u.Id);
             return;
         }
+        // 何もない地面のクリックは選択を外すだけ
         if (!add) _selected.Clear();
-        CenterOn(t, smooth: true);
     }
 
     /// <summary>

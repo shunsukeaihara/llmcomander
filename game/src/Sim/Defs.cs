@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace LlmCommander.Sim;
 
-public enum UnitKind { Villager, Spearman, Archer, Cavalry }
+public enum UnitKind { Villager, Spearman, Archer, Cavalry, Scout }
 
 public enum BuildingKind { TownCenter, Barracks }
 
@@ -22,6 +22,9 @@ public static class Defs
     public const float Carry = 10f;
     public const float GatherRate = 0.5f;
     public const float Sight = 7f;
+
+    /// <summary>ユニットの視界(タイル)。斥候だけ広い。</summary>
+    public static float SightOf(UnitKind k) => k == UnitKind.Scout ? 10f : Sight;
     public const float MeleeRange = 0.7f;
 
     public static readonly Dictionary<UnitKind, UnitStats> Units = new()
@@ -30,6 +33,8 @@ public static class Defs
         [UnitKind.Spearman] = new(50, 1.0f, 4, MeleeRange, 2.0f, 1, 35, 25, 0, 15f, 0.32f),
         [UnitKind.Archer] = new(32, 0.95f, 4, 4.5f, 2.0f, 0, 0, 25, 45, 18f, 0.3f),
         [UnitKind.Cavalry] = new(100, 1.6f, 8, MeleeRange, 1.8f, 2, 60, 0, 75, 20f, 0.42f),
+        // 斥候: 速くて視界が広いが、戦いには弱い
+        [UnitKind.Scout] = new(45, 2.0f, 3, MeleeRange, 2.0f, 0, 80, 0, 0, 15f, 0.42f),
     };
 
     public static readonly Dictionary<BuildingKind, BuildingStats> Buildings = new()
@@ -42,6 +47,7 @@ public static class Defs
     public static int Bonus(UnitKind attacker, UnitKind target) => (attacker, target) switch
     {
         (UnitKind.Spearman, UnitKind.Cavalry) => 14,
+        (UnitKind.Spearman, UnitKind.Scout) => 8,
         (UnitKind.Cavalry, UnitKind.Archer) => 6,
         (UnitKind.Archer, UnitKind.Spearman) => 3,
         _ => 0,
@@ -56,6 +62,7 @@ public static class Defs
         UnitKind.Spearman => "槍",
         UnitKind.Archer => "弓",
         UnitKind.Cavalry => "騎兵",
+        UnitKind.Scout => "斥候",
         _ => k.ToString(),
     };
 
@@ -82,6 +89,7 @@ public static class Defs
             case "spearman" or "spear" or "槍" or "槍兵": kind = UnitKind.Spearman; return true;
             case "archer" or "弓" or "弓兵": kind = UnitKind.Archer; return true;
             case "cavalry" or "騎兵": kind = UnitKind.Cavalry; return true;
+            case "scout" or "斥候" or "偵察兵": kind = UnitKind.Scout; return true;
         }
         return false;
     }

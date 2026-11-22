@@ -70,7 +70,7 @@ public sealed class Visibility
     {
         Array.Clear(Visible);
         foreach (var u in w.Units.Values)
-            if (u.Team == team && u.Alive) Reveal(u.Pos, UnitSight);
+            if (u.Team == team && u.Alive) Reveal(u.Pos, Defs.SightOf(u.Kind));
         foreach (var b in w.Buildings.Values)
             if (b.Team == team && b.Alive) Reveal(b.Pos, BuildingSight + b.Radius);
 

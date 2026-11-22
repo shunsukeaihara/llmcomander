@@ -48,8 +48,11 @@ public static class Context
         sb.AppendLine($"村人の生産: {(ts.VillagersContinuous ? $"継続(目標{ts.VillagerTarget}人)" : "停止")}");
         sb.AppendLine("兵の生産目標: " + string.Join(", ", ts.TrainGoal.Select(kv =>
             $"{Defs.Ja(kv.Key)} {(kv.Value < 0 ? "上限まで継続" : kv.Value == 0 ? "なし" : kv.Value + "体")}")));
+        int inside = villagers.Count(v => v.IsInside);
+        if (inside > 0) sb.AppendLine($"村の中心にこもっている村人: {inside}人(矢を{inside}本ずつ撃つ)");
         var reinforce = ts.Ops.FirstOrDefault(o => o.Id == ts.ReinforceOp);
-        sb.AppendLine($"新兵の配属先: {reinforce?.Name ?? "予備"}{(ts.ReinforceRole != "" ? "/" + ts.ReinforceRole : "")}");
+        sb.AppendLine($"新兵の配属先: {reinforce?.Name ?? "予備"}{(ts.ReinforceRole != "" ? "/" + ts.ReinforceRole : "")}" +
+                      $"(予備の集合場所: {ts.RallyName}、{w.Map.RegionName(ts.Rally)}付近)");
         var blds = w.TeamBuildings(ts.Team).GroupBy(b => (b.Kind, b.Done))
             .Select(g => $"{Defs.Ja(g.Key.Kind)}{(g.Key.Done ? "" : "(建設中)")}×{g.Count()}");
         sb.AppendLine("建物: " + string.Join(", ", blds));
@@ -71,6 +74,22 @@ public static class Context
         var groups = enemies.GroupBy(u => w.Map.RegionName(u.Pos)).OrderByDescending(g => g.Count()).ToList();
         if (groups.Count == 0) return "見えている敵兵なし";
         return string.Join("\n", groups.Select(g => $"- {g.Key}付近: {Counts(g)}"));
+    }
+
+    /// <summary>探索済みの場所で見つけた金と食のまとまり。近くに誰の建物があるかも添える。</summary>
+    public static string FoundResources(World w, int team)
+    {
+        var vis = w.Vision[team];
+        var lines = new List<string>();
+        foreach (var (c, res, amount) in w.ResourceClustersWithAmount())
+        {
+            if (!vis.IsExplored((int)c.X, (int)c.Y)) continue;
+            bool own = w.TeamBuildings(team).Any(b => b.Kind == BuildingKind.TownCenter && Vector2.Distance(b.Pos, c) < 15);
+            bool enemy = vis.Buildings.Values.Any(b => Vector2.Distance(new Vector2(b.TileX + 1.5f, b.TileY + 1.5f), c) < 15);
+            string near = own ? "自軍の村の中心のそば" : enemy ? "敵の建物のそば" : "どちらの拠点からも離れている";
+            lines.Add($"- {Defs.Ja(res)}: {w.Map.RegionName(c)}付近(残り約{(int)amount}、{near})");
+        }
+        return lines.Count == 0 ? "" : string.Join("\n", lines) + "\n";
     }
 
     /// <summary>今は見えていないが、最後に見た敵兵と、見たことのある敵の建物。</summary>
@@ -143,6 +162,9 @@ public static class Context
             sb.AppendLine("プレイヤーの目印:");
             foreach (var m in ts.Markers) sb.AppendLine($"- {m.Name}({PlaceText(w, m.ToPlace())})");
         }
+
+        var found = FoundResources(w, team);
+        if (found != "") sb.Append("\n## 見つけた資源(探索済みの場所にある金と食)\n" + found);
 
         sites ??= Sites(w, team);
         if (sites.Count > 0)

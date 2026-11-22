@@ -5,7 +5,11 @@ using System.Numerics;
 
 namespace LlmCommander.Sim;
 
-public enum Stance { Hold, Advance, Retreat }
+/// <summary>
+/// Explore: 場所を中心に、内側の輪から順に未探索の場所を回る(斥候向け)。
+/// Patrol: 場所の周りを、決めた半径で回り続ける(遠巻きの偵察など)。
+/// </summary>
+public enum Stance { Hold, Advance, Retreat, Explore, Patrol }
 
 public enum Formation { Cluster, Line }
 
@@ -34,8 +38,11 @@ public sealed class RulePatch
     public List<UnitKind>? Priority;
     public bool? Kite;
     public Formation? Formation;
+    public float? Radius;
+    public bool? Evade;
 
-    public bool IsEmpty => Stance is null && Anchor is null && Priority is null && Kite is null && Formation is null;
+    public bool IsEmpty => Stance is null && Anchor is null && Priority is null && Kite is null && Formation is null &&
+                           Radius is null && Evade is null;
 }
 
 public enum ConditionKind { EnemyNear, RoleEngaged, RoleHpBelow }
@@ -62,6 +69,12 @@ public sealed class Role
     public bool Kite;
     public Formation Formation = Formation.Cluster;
     public Trigger? Trigger;
+    /// <summary>探索の範囲・巡回の半径(タイル)。null なら既定。</summary>
+    public float? Radius;
+    /// <summary>戦わない: 敵兵が近づいたり攻撃されたりしたら逃げる。</summary>
+    public bool Evade;
+    /// <summary>この敵兵を狙い続ける(右クリックで敵兵を指したとき)。倒すか見失うまで追う。</summary>
+    public int FocusTarget;
 
     /// <summary>直前の更新で置き換えられた内容(取り消し線で見せる)。</summary>
     public string Superseded = "";
@@ -83,10 +96,13 @@ public sealed class Role
                 Stance.Hold => $"{Anchor.Name}で{(Formation == Formation.Line ? "横隊で" : "")}待機・迎撃",
                 Stance.Advance => $"{Anchor.Name}へ進撃",
                 Stance.Retreat => $"撤退 → {Anchor.Name}",
+                Stance.Explore => $"{Anchor.Name}を中心に{(Radius is { } r ? $"半径{r:0}まで" : "")}探索",
+                Stance.Patrol => $"{Anchor.Name}の周りを半径{Radius ?? 10:0}で巡回",
                 _ => "",
             },
         };
         if (Kite) parts.Add("引き撃ち");
+        if (Evade && Stance is not (Stance.Explore or Stance.Patrol)) parts.Add("交戦せず逃げる");
         if (Priority.Count > 0) parts.Add("優先: " + string.Join("・", Priority.Select(Defs.Ja)));
         return string.Join(" ・ ", parts);
     }
@@ -100,14 +116,20 @@ public sealed class Role
             {
                 Stance.Hold => $"{Anchor.Name}で待機",
                 Stance.Advance => $"{Anchor.Name}へ進撃",
+                Stance.Explore => $"{Anchor.Name}を中心に探索",
+                Stance.Patrol => $"{Anchor.Name}の周りを巡回",
                 _ => $"撤退 → {Anchor.Name}",
             });
         if (p.Kite is { } k && k != Kite) old.Add(Kite ? "引き撃ち" : "引き撃ちなし");
         if (p.Priority is { } pr && !pr.SequenceEqual(Priority))
             old.Add(Priority.Count > 0 ? "優先: " + string.Join("・", Priority.Select(Defs.Ja)) : "優先なし");
         if (p.Formation is { } f && f != Formation) old.Add(Formation == Formation.Line ? "横隊" : "密集");
+        if (p.Evade is { } e && e != Evade) old.Add(Evade ? "交戦せず逃げる" : "交戦する");
+        if (p.Radius is { } rad && rad != Radius && p.Stance is null) old.Add(Radius is { } r0 ? $"半径{r0:0}" : "半径なし");
 
         if (p.Stance is { } s2) Stance = s2;
+        if (p.Radius is { } r2) Radius = r2;
+        if (p.Evade is { } e2) Evade = e2;
         if (p.Anchor is { } a2) Anchor = a2;
         if (p.Kite is { } k2) Kite = k2;
         if (p.Priority is { } pr2) Priority = pr2.ToList();
@@ -129,6 +151,8 @@ public sealed class Operation
     public string Name = "";
     public bool IsEconomy;
     public bool IsReserve;
+    /// <summary>右クリックの直接指示でできた作戦(担当LLMは付けない。兵がいなくなったら消える)。</summary>
+    public bool IsManual;
     public readonly List<Role> Roles = new();
     public readonly List<OpChange> Changes = new();
     /// <summary>プレイヤーがこの作戦に対して言ったこと(担当LLMが意図を汲むため)。</summary>
@@ -204,6 +228,7 @@ public sealed class TeamState
         [UnitKind.Spearman] = 0,
         [UnitKind.Archer] = 0,
         [UnitKind.Cavalry] = 0,
+        [UnitKind.Scout] = 0,
     };
     public int BuildersPerPlan = 2;
     public readonly List<BuildPlan> Plans = new();
@@ -213,7 +238,9 @@ public sealed class TeamState
     public readonly List<Alert> Alerts = new();
     public int ReinforceOp;
     public string ReinforceRole = "";
+    /// <summary>新兵の集合場所(予備の部隊が待つ場所)。</summary>
     public Vector2 Rally;
+    public string RallyName = "集合地点";
     public string EconomyNote = "";
     public double EconomyNoteAt = -999;
     public int Version;

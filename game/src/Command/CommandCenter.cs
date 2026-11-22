@@ -233,7 +233,7 @@ public sealed class CommandCenter
     {
         foreach (var op in T.ActiveOps)
         {
-            if (op.IsEconomy || op.IsReserve || op.OfficerBusy) continue;
+            if (op.IsEconomy || op.IsReserve || op.IsManual || op.OfficerBusy) continue;
             if (!_w.Members(op).Any()) continue;
             bool due = _w.Time >= op.OfficerDue || (op.Eventful && _w.Time >= op.OfficerDue - Settings.OfficerInterval + Settings.OfficerMinInterval);
             if (!due) continue;

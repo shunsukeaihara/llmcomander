@@ -144,7 +144,9 @@ public sealed partial class World
     /// <summary>割り当て目標に合わせて村人を動かす。どの村人を動かすかはここで決める。</summary>
     private void Allocate(TeamState ts)
     {
-        var villagers = TeamUnits(ts.Team).Where(v => v.Kind == UnitKind.Villager && v.Job != JobKind.Build).ToList();
+        // こもっている村人、こもりに向かう村人、直接指示で待機中の村人は割り当てに使わない
+        var villagers = TeamUnits(ts.Team).Where(v => v.Kind == UnitKind.Villager && v.Job != JobKind.Build &&
+                                                      !v.IsInside && v.GarrisonTarget == 0 && v.ManualTarget == null).ToList();
         var idle = villagers.Where(v => v.Job == JobKind.None).ToList();
         foreach (Res r in Enum.GetValues<Res>())
         {
@@ -225,6 +227,13 @@ public sealed partial class World
 
     private void StepVillager(Unit v)
     {
+        if (StepGarrison(v)) return;
+        // 直接指示で移動を命じられた村人は、そこで待つ
+        if (v.ManualTarget is { } mt && v.Job == JobKind.None)
+        {
+            MoveTo(v, mt, 0.3f);
+            return;
+        }
         // 攻撃されたら少し逃げる
         if (Time - v.LastHitAt < 1.0 && Units.TryGetValue(v.LastAttacker, out var atk) && atk.Alive)
         {

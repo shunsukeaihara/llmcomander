@@ -106,6 +106,10 @@ def build_humanoid(m, unit, hip_z=0.85, parent=None):
     if unit == "spearman":
         part("ball", "helmet", (0.32, 0.32, 0.22), (0, 0, 0.87), m["metal"], torso)
         part("cone", "crest", (0.07, 0.07, 0.16), (0, 0, 1.02), m["team"], torso)
+    elif unit == "scout":
+        # 斥候: 兜なしの帽子に、陣営色のマント
+        part("cyl", "cap", (0.34, 0.34, 0.12), (0, 0, 0.9), m["cloth"], torso)
+        part("box", "cape", (0.08, 0.5, 0.6), (-0.19, 0, 0.3), m["team"], torso)
     elif unit == "archer":
         part("cone", "hood", (0.36, 0.36, 0.34), (0, 0, 0.92), m["team"], torso)
         part("cyl", "quiver", (0.14, 0.14, 0.55), (-0.2, 0.1, 0.35), m["wood"], torso, rot=(0.3, 0, 0))
@@ -131,6 +135,10 @@ def build_humanoid(m, unit, hip_z=0.85, parent=None):
     elif unit == "villager":
         part("cyl", "handle", (0.06, 0.06, 0.75), (0, 0, 0.3), m["wood"], w)
         part("box", "axe", (0.26, 0.06, 0.16), (0.1, 0, 0.62), m["metal"], w)
+    elif unit == "scout":
+        # 短い槍だけ(盾なし)
+        part("cyl", "shaft", (0.05, 0.05, 1.4), (0, 0, 0.3), m["wood"], w)
+        part("cone", "tip", (0.1, 0.1, 0.22), (0, 0, 1.05), m["metal"], w)
     elif unit == "cavalry":
         part("box", "blade", (0.05, 0.1, 0.9), (0, 0, 0.5), m["metal"], w)
         part("box", "guard", (0.06, 0.26, 0.05), (0, 0, 0.06), m["wood"], w)
@@ -167,8 +175,11 @@ def build_horse(m):
 
 def build_unit(unit):
     m = mats()
-    if unit != "cavalry":
+    if unit not in ("cavalry", "scout"):
         return build_humanoid(m, unit)
+    if unit == "scout":
+        # 斥候の馬は明るい栗毛にして、騎兵と見分けやすくする
+        m["horse"].node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.78, 0.62, 0.40, 1)
     h = build_horse(m)
     rider = build_humanoid(m, unit, hip_z=0.35, parent=h["horse_body"])
     h.update(rider)
@@ -187,7 +198,7 @@ def pose(j, anim, t):
     ry = lambda o, a: setattr(o, "rotation_euler", (o.rotation_euler[0], a, 0))  # +X 正面での前後の振り
     for k in ("leg_l", "leg_r", "arm_l", "arm_r", "torso"):
         ry(j[k], 0)
-    mounted = unit == "cavalry"
+    mounted = unit in ("cavalry", "scout")
     base_z = 0.35 if mounted else 0.85
     j["hips"].location.z = base_z
     s = math.sin(t * 2 * math.pi)
@@ -197,7 +208,7 @@ def pose(j, anim, t):
     if unit == "spearman":
         j["weapon"].rotation_euler = (0, math.radians(110), 0)  # 腕の角度と合わせて水平より少し上
         hold = math.radians(-35)
-    elif unit == "cavalry":
+    elif unit in ("cavalry", "scout"):
         j["weapon"].rotation_euler = (0, math.radians(60), 0)
         hold = math.radians(-30)
     elif unit == "villager":
@@ -238,7 +249,7 @@ def pose(j, anim, t):
             # 弓を前に構えて引き、放つ
             ry(j["arm_l"], math.radians(-80))
             ry(j["arm_r"], math.radians(-80) + 0.5 * max(0, -k + 0.3))
-        elif unit in ("villager", "cavalry"):
+        elif unit in ("villager", "cavalry", "scout"):
             # 振りかぶって振り下ろす
             ry(j["arm_r"], hold - 1.3 * (1 - k) + 0.6)
             ry(j["torso"], -0.1 * k)
@@ -282,7 +293,7 @@ DIR_NAMES = ["e", "se", "s", "sw", "w", "nw", "n", "ne"]
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
-    ap.add_argument("--unit", choices=("spearman", "archer", "villager", "cavalry"), default="spearman")
+    ap.add_argument("--unit", choices=("spearman", "archer", "villager", "cavalry", "scout"), default="spearman")
     ap.add_argument("--dirs", type=int, choices=(4, 8), default=8)
     ap.add_argument("--size", type=int, default=192)
     args = ap.parse_args()

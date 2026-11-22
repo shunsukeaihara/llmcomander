@@ -58,6 +58,8 @@ public sealed class Applier
             case "hold": p.Stance = Stance.Hold; break;
             case "advance": p.Stance = Stance.Advance; break;
             case "retreat": p.Stance = Stance.Retreat; break;
+            case "explore": p.Stance = Stance.Explore; break;
+            case "patrol": p.Stance = Stance.Patrol; break;
         }
         if (Str(e, "place") is { } pn)
         {
@@ -70,6 +72,8 @@ public sealed class Applier
             case "cluster": p.Formation = Formation.Cluster; break;
         }
         p.Kite = Bool(e, "kite");
+        p.Evade = Bool(e, "evade");
+        if (Num(e, "radius") is { } rad) p.Radius = Math.Clamp(rad, 3, 60);
         if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty("priority", out var pr) && pr.ValueKind == JsonValueKind.Array)
             p.Priority = pr.EnumerateArray()
                 .Select(x => Defs.TryParseUnit(x.GetString(), out var k) ? (UnitKind?)k : null)
@@ -94,6 +98,7 @@ public sealed class Applier
                 "propose_build" => ProposeBuild(call.Input, sites),
                 "confirm_build" => Confirm(call.Input, true),
                 "cancel_build" => Confirm(call.Input, false),
+                "garrison" => Garrison(call.Input),
                 // 中身のない返答は無視する(命令に添えて空の reply が付いてくることがある)
                 "reply" => string.IsNullOrWhiteSpace(Str(call.Input, "text")) ? "" : "返答: " + Str(call.Input, "text"),
                 _ => $"不明な命令 {call.Name}",
@@ -256,6 +261,8 @@ public sealed class Applier
         var parts = new List<string>();
         if (Obj(input, "gather") is { } g)
         {
+            // 割り当てを決め直すので、直接指示で待機させていた村人も仕事に戻す
+            foreach (var v in _w.TeamUnits(_team).Where(v => v.Kind == UnitKind.Villager)) v.ManualTarget = null;
             int villagers = _w.TeamUnits(_team).Count(u => u.Kind == UnitKind.Villager);
             foreach (Res r in Enum.GetValues<Res>())
                 if (Int(g, Defs.Key(r)) is { } n)
@@ -280,6 +287,16 @@ public sealed class Applier
                 T.TrainGoal[k] = Math.Max(-1, goal);
                 parts.Add($"{Defs.Ja(k)}の生産 {(goal < 0 ? "継続" : goal == 0 ? "停止" : goal + "体")}");
             }
+        if (Str(input, "rally") is { } rallyName)
+        {
+            var place = PlaceOf(rallyName);
+            if (place == null) parts.Add($"集合場所「{rallyName}」が見つかりません");
+            else
+            {
+                _w.SetRally(_team, place);
+                parts.Add($"新兵の集合場所を{place.Name}に");
+            }
+        }
         if (Obj(input, "reinforce") is { } rf)
         {
             var op = T.FindOp(Str(rf, "operation") ?? "");
@@ -352,6 +369,125 @@ public sealed class Applier
         foreach (var p in plans) p.Status = ok ? PlanStatus.Confirmed : PlanStatus.Cancelled;
         T.Version++;
         return (ok ? "建設を確定: " : "建設を取り消し: ") + string.Join("、", plans.Select(p => $"{Defs.Ja(p.Kind)}#{p.Id}"));
+    }
+
+    private string Garrison(JsonElement input)
+    {
+        if (Str(input, "action") == "leave")
+        {
+            int n = _w.Ungarrison(_team);
+            return n > 0 ? $"村人{n}人を村の中心から出して仕事に戻す" : "村の中心にこもっている村人はいません";
+        }
+        int sent = _w.Garrison(_team, Int(input, "count") ?? -1);
+        return sent > 0 ? $"村人{sent}人を村の中心にこもらせる" : "こもれる村の中心がありません(満員か未完成)";
+    }
+
+    // ------------------------------------------------------------ 直接指示(右クリック)
+
+    /// <summary>
+    /// 選択したユニットへの直接指示。クリックした場所に応じて、移動・攻撃・採集・建設・こもりを決める。
+    /// 兵は作戦「直接指示」の役割にまとめ、村人は経済の割り当てもそれに合わせて変える。
+    /// </summary>
+    public string ManualOrder(IReadOnlyList<int> selected, System.Numerics.Vector2 tile)
+    {
+        var units = selected.Select(id => _w.Units.GetValueOrDefault(id)).Where(u => u is { Alive: true } && u.Team == _team).Cast<Unit>().ToList();
+        if (units.Count == 0) return "";
+        var vis = _w.Vision[_team];
+        int tx = (int)tile.X, ty = (int)tile.Y;
+        var enemyUnit = _w.Units.Values
+            .Where(o => o.Team != _team && o.Alive && !o.IsInside && vis.IsVisible(o.Pos) && System.Numerics.Vector2.Distance(o.Pos, tile) < 1.2f)
+            .OrderBy(o => System.Numerics.Vector2.Distance(o.Pos, tile)).FirstOrDefault();
+        Building? building = _w.Map.In(tx, ty) && _w.Map.Occupant[ty * _w.Map.W + tx] is int bid and > 0 &&
+                             _w.Buildings.TryGetValue(bid, out var bb) ? bb : null;
+        bool enemyBuilding = building != null && building.Team != _team && (vis.Buildings.ContainsKey(building.Id) || !vis.Enabled);
+        var region = _w.Map.RegionName(tile);
+        var parts = new List<string>();
+
+        var villagers = units.Where(u => u.Kind == UnitKind.Villager).ToList();
+        if (villagers.Count > 0) parts.Add(VillagerOrder(villagers, tile, building, region));
+
+        var army = units.Where(u => u.Kind != UnitKind.Villager).ToList();
+        if (army.Count > 0)
+        {
+            bool attack = enemyUnit != null || enemyBuilding;
+            var target = enemyUnit?.Pos ?? (enemyBuilding ? building!.Pos : tile);
+            var op = T.ActiveOps.FirstOrDefault(o => o.IsManual);
+            if (op == null)
+            {
+                op = new Operation { Id = _w.NextId(), Team = _team, Name = "直接指示", IsManual = true, CreatedAt = _w.Time };
+                T.Ops.Add(op);
+            }
+            int n = 1;
+            while (op.Roles.Any(r => r.Name == $"指示{n}")) n++;
+            var place = new Place(attack ? $"{region}の攻撃目標" : $"{region}の指定地点", new[] { target });
+            var role = new Role($"指示{n}", place) { Stance = attack ? Stance.Advance : Stance.Hold, FocusTarget = enemyUnit?.Id ?? 0 };
+            op.Roles.Add(role);
+            foreach (var u in army)
+            {
+                u.OpId = op.Id;
+                u.Role = role.Name;
+                u.ExploreGoal = null;
+            }
+            role.InitialCount = army.Count;
+            string who = string.Join(" ", army.GroupBy(u => u.Kind).Select(g => $"{Defs.Ja(g.Key)}{g.Count()}"));
+            string what = attack ? $"{region}の{(enemyUnit != null ? "敵兵" : "敵の" + Defs.Ja(building!.Kind))}を攻撃" : $"{region}へ移動して待機";
+            op.Log(_w.Time, $"右クリック: {who} → {what}");
+            parts.Add($"{who}: {what}");
+        }
+        T.Version++;
+        return string.Join(" / ", parts.Where(p => p != ""));
+    }
+
+    private string VillagerOrder(List<Unit> villagers, System.Numerics.Vector2 tile, Building? building, string region)
+    {
+        // 今の仕事から外す(割り当ての目標もそのぶん減らす)
+        void Release(Unit v)
+        {
+            if (v.Job == JobKind.Gather) T.Gather[v.JobRes] = Math.Max(0, T.Gather[v.JobRes] - 1);
+            v.Job = JobKind.None;
+            v.ManualTarget = null;
+            v.GarrisonTarget = 0;
+        }
+
+        if (building != null && building.Team == _team && building.Kind == BuildingKind.TownCenter && building.Done)
+        {
+            foreach (var v in villagers) Release(v);
+            int sent = _w.Garrison(_team, -1, villagers.Select(v => v.Id).ToHashSet());
+            return $"村人{sent}人: 村の中心にこもる";
+        }
+        if (building != null && building.Team == _team && !building.Done)
+        {
+            foreach (var v in villagers)
+            {
+                Release(v);
+                v.Job = JobKind.Build;
+                v.JobTarget = building.Id;
+            }
+            return $"村人{villagers.Count}人: {Defs.Ja(building.Kind)}の建設を手伝う";
+        }
+        var node = _w.Nodes.Where(n => n.Amount > 0 && System.Numerics.Vector2.Distance(n.Pos, tile) < 1.2f)
+            .OrderBy(n => System.Numerics.Vector2.Distance(n.Pos, tile)).FirstOrDefault();
+        bool tree = _w.Map.In((int)tile.X, (int)tile.Y) && _w.Map.At((int)tile.X, (int)tile.Y) == Tile.Forest;
+        if (node != null || tree)
+        {
+            var res = node?.Kind ?? Res.Wood;
+            foreach (var v in villagers)
+            {
+                Release(v);
+                v.Job = JobKind.Gather;
+                v.JobRes = res;
+                v.JobTarget = node?.Id ?? 0;
+                v.JobTile = tree ? ((int)tile.X, (int)tile.Y) : (-1, -1);
+                T.Gather[res]++;
+            }
+            return $"村人{villagers.Count}人: {region}で{Defs.Ja(res)}を集める(割り当て {Defs.Ja(res)}{T.Gather[res]})";
+        }
+        foreach (var v in villagers)
+        {
+            Release(v);
+            v.ManualTarget = _w.Map.NearestPassable(tile);
+        }
+        return $"村人{villagers.Count}人: {region}へ移動して待機";
     }
 
     // ------------------------------------------------------------ 担当LLM

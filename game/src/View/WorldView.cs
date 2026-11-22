@@ -11,6 +11,7 @@ public partial class WorldView : Node2D
     public World? World;
     public Sprites? Sprites;
     public Props? Props;
+    public Font? Font;
     private static readonly string[] TreeNames =
         { "tree_broad_0", "tree_pine_0", "tree_broad_1", "tree_pine_1", "tree_broad_2", "tree_pine_2" };
     public HashSet<int> Selected = new();
@@ -63,6 +64,7 @@ public partial class WorldView : Node2D
         foreach (var u in w.Units.Values)
         {
             if (u.Team != 0 && !vis.IsVisible(u.Pos)) continue; // 霧の中の敵兵は描かない
+            if (u.IsInside) continue;                          // 建物にこもっている村人は描かない
             var rp = u.RenderPos(Iso.Alpha);
             _items.Add((rp.X + rp.Y, 3, u.Id, 0, 0));
         }
@@ -180,6 +182,16 @@ public partial class WorldView : Node2D
         var mod = b.Done ? Colors.White : new Color(1, 1, 1, 0.35f + 0.5f * b.Progress);
         if (!Props!.Draw(this, BuildingSprite(b.Kind, b.Team), c, mod)) return false;
         if (!b.Done) DrawBar(c + new Vector2(0, -70), b.Progress, Palette.Accent);
+        // こもっている村人の数(矢の本数)
+        int inside = b.Done && b.Kind == BuildingKind.TownCenter && (b.Team == 0 || World!.Vision[0].IsVisible(b.Pos)) ? World!.InsideCount(b) : 0;
+        if (inside > 0 && Font != null)
+        {
+            var label = $"こもり {inside}";
+            var size = Font.GetStringSize(label, HorizontalAlignment.Left, -1, 11);
+            var p = c + new Vector2(-size.X / 2 - 5, -96);
+            DrawRect(new Rect2(p, size + new Vector2(10, 4)), new Color(0.07f, 0.1f, 0.13f, 0.9f));
+            DrawString(Font, p + new Vector2(5, size.Y - 1), label, HorizontalAlignment.Left, -1, 11, Palette.Warn);
+        }
         else if (b.Hp < b.MaxHp) DrawBar(c + new Vector2(0, -70), b.Hp / b.MaxHp, b.Team == 0 ? Palette.Good : Palette.Alert);
         return true;
     }

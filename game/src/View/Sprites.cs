@@ -18,7 +18,7 @@ public sealed class Sprites
 
     public Sprites()
     {
-        foreach (var kind in new[] { UnitKind.Villager, UnitKind.Spearman, UnitKind.Archer, UnitKind.Cavalry })
+        foreach (var kind in new[] { UnitKind.Villager, UnitKind.Spearman, UnitKind.Archer, UnitKind.Cavalry, UnitKind.Scout })
         for (int team = 0; team < 2; team++)
         {
             string path = $"res://assets/sprites/{Defs.Key(kind)}_{TeamFile[team]}.png";

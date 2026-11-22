@@ -69,16 +69,20 @@ public sealed partial class World
     }
 
     /// <summary>金と食の資源を、近いものどうしでまとめた中心。</summary>
-    private List<(Vector2 center, Res res)> ResourceClusters()
+    public List<(Vector2 center, Res res)> ResourceClusters() =>
+        ResourceClustersWithAmount().Select(c => (c.center, c.res)).ToList();
+
+    /// <summary>金と食の資源のまとまり(中心、種類、残量)。</summary>
+    public List<(Vector2 center, Res res, float amount)> ResourceClustersWithAmount()
     {
-        var clusters = new List<(Vector2 sum, int n, Res res)>();
+        var clusters = new List<(Vector2 sum, int n, Res res, float amount)>();
         foreach (var n in Nodes.Where(n => n.Amount > 0 && n.Kind != Res.Wood))
         {
             int i = clusters.FindIndex(c => c.res == n.Kind && Vector2.Distance(c.sum / c.n, n.Pos) < 4);
-            if (i < 0) clusters.Add((n.Pos, 1, n.Kind));
-            else clusters[i] = (clusters[i].sum + n.Pos, clusters[i].n + 1, n.Kind);
+            if (i < 0) clusters.Add((n.Pos, 1, n.Kind, n.Amount));
+            else clusters[i] = (clusters[i].sum + n.Pos, clusters[i].n + 1, n.Kind, clusters[i].amount + n.Amount);
         }
-        return clusters.Select(c => (c.sum / c.n, c.res)).ToList();
+        return clusters.Select(c => (c.sum / c.n, c.res, c.amount)).ToList();
     }
 
     private float NearestNode(Res r, Vector2 p)

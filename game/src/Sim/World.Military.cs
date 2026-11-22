@@ -85,6 +85,36 @@ public sealed partial class World
         var stance = role?.Stance ?? Stance.Hold;
         var anchor = role?.Anchor.Center ?? slot;
 
+        // 戦わない役割(探索・巡回は常に): 敵兵が近いか攻撃されたら逃げる
+        bool evade = role is { Evade: true } || stance is Stance.Explore or Stance.Patrol;
+        if (evade && Flee(u)) return;
+        // 指名された敵兵がいれば、見えている限り追いかけて攻撃する
+        if (role is { FocusTarget: > 0 } && !evade)
+        {
+            if (Units.TryGetValue(role.FocusTarget, out var focus) && focus.Alive && !focus.IsInside && Vision[u.Team].IsVisible(focus.Pos))
+            {
+                Engage(u, role, focus);
+                return;
+            }
+            role.FocusTarget = 0; // 倒したか見失った。あとは目的地の周りの敵を探す
+        }
+        if (stance == Stance.Explore)
+        {
+            Explore(u, role!);
+            return;
+        }
+        if (stance == Stance.Patrol)
+        {
+            Patrol(u, role!);
+            return;
+        }
+        if (evade)
+        {
+            // 戦わずに持ち場(進撃なら目的地)へ
+            MoveTo(u, slot, 0.3f);
+            return;
+        }
+
         if (stance == Stance.Retreat)
         {
             if (Vector2.Distance(u.Pos, anchor) > 4f)
@@ -115,6 +145,90 @@ public sealed partial class World
             target = PickTarget(u, role, anchor, 12f, true);
         if (target != null) Engage(u, role, target);
         else MoveTo(u, slot, 0.2f);
+    }
+
+    // ------------------------------------------------------------ 探索(斥候)
+
+    /// <summary>
+    /// 場所を中心に、内側の輪から順に未探索の場所を回る。戦わず、敵兵が近づいたら距離を取る。
+    /// </summary>
+    /// <summary>見えている敵兵が近いか、少し前に攻撃されていたら、離れる方向へ逃げる。逃げたら true。</summary>
+    private bool Flee(Unit u)
+    {
+        var threat = Units.Values
+            .Where(o => o.Team != u.Team && o.Alive && !o.IsInside && o.Kind != UnitKind.Villager && Vision[u.Team].IsVisible(o.Pos))
+            .OrderBy(o => Vector2.DistanceSquared(o.Pos, u.Pos)).FirstOrDefault();
+        Vector2? from = null;
+        if (threat != null && Vector2.Distance(threat.Pos, u.Pos) < Math.Max(5f, threat.Stats.Range + 2.5f)) from = threat.Pos;
+        else if (Time - u.LastHitAt < 1.5)
+            from = Units.TryGetValue(u.LastAttacker, out var a) ? a.Pos : Buildings.TryGetValue(u.LastAttacker, out var b) ? b.Pos : null;
+        if (from is not { } f) return false;
+        var away = Vector2.Normalize(u.Pos - f + new Vector2(0.001f, 0));
+        var dest = Map.NearestPassable(u.Pos + away * 4);
+        if (Vector2.Distance(dest, u.Pos) < 0.5f) dest = Map.NearestPassable(u.Pos + new Vector2(-away.Y, away.X) * 4);
+        MoveTo(u, dest, 0.3f);
+        u.ExploreGoal = null;
+        return true;
+    }
+
+    /// <summary>場所の周りを半径 Radius(既定10)で回り続ける。</summary>
+    private void Patrol(Unit u, Role role)
+    {
+        var c = role.Anchor.Center;
+        float r = role.Radius ?? 10f;
+        if (u.ExploreGoal is { } g && Vector2.Distance(u.Pos, g) > 1.5f && Time - u.ExploreAt < 15)
+        {
+            MoveTo(u, g, 1f);
+            return;
+        }
+        // 今いる角度から少し先の、輪の上の地点へ(右回り)
+        var rel = u.Pos - c;
+        float ang = rel.LengthSquared() < 0.01f ? 0 : MathF.Atan2(rel.Y, rel.X);
+        float next = Vector2.Distance(u.Pos, c) < r * 0.6f || Vector2.Distance(u.Pos, c) > r * 1.4f ? ang : ang + 0.6f;
+        var p = c + new Vector2(MathF.Cos(next), MathF.Sin(next)) * r;
+        p = new Vector2(Math.Clamp(p.X, 1, Map.W - 1), Math.Clamp(p.Y, 1, Map.H - 1));
+        u.ExploreGoal = Map.NearestPassable(p, 6);
+        u.ExploreAt = (float)Time;
+        MoveTo(u, u.ExploreGoal.Value, 1f);
+    }
+
+    private void Explore(Unit u, Role role)
+    {
+        bool reached = u.ExploreGoal is { } g && Vector2.Distance(u.Pos, g) < 1.5f;
+        bool seen = u.ExploreGoal is { } g2 && Vision[u.Team].IsExplored((int)g2.X, (int)g2.Y);
+        if (u.ExploreGoal == null || reached || seen || Time - u.ExploreAt > 20)
+        {
+            u.ExploreGoal = NextExploreGoal(u, role.Anchor.Center, role.Radius);
+            u.ExploreAt = (float)Time;
+        }
+        if (u.ExploreGoal is { } goal) MoveTo(u, goal, 1f);
+        else MoveTo(u, role.Anchor.Center, 1f); // 探索し尽くしたら中心で待つ
+    }
+
+    /// <summary>中心から近い輪から順に、未探索の地点のうち今の位置に一番近いものを選ぶ。</summary>
+    private Vector2? NextExploreGoal(Unit u, Vector2 center, float? maxRadius)
+    {
+        var vis = Vision[u.Team];
+        float limit = maxRadius ?? Map.W * 1.5f;
+        for (float r = 6; r <= limit; r += 4)
+        {
+            int samples = Math.Max(12, (int)(r * 1.2f));
+            Vector2? best = null;
+            float bestD = float.MaxValue;
+            for (int i = 0; i < samples; i++)
+            {
+                float a = i * MathF.Tau / samples;
+                var p = center + new Vector2(MathF.Cos(a), MathF.Sin(a)) * r;
+                if (p.X < 1 || p.Y < 1 || p.X > Map.W - 1 || p.Y > Map.H - 1) continue;
+                if (vis.IsExplored((int)p.X, (int)p.Y)) continue;
+                var q = Map.NearestPassable(p, 4);
+                if (!Map.Passable(q)) continue;
+                float d = Vector2.Distance(q, u.Pos);
+                if (d < bestD) { bestD = d; best = q; }
+            }
+            if (best != null) return best;
+        }
+        return null;
     }
 
     // ------------------------------------------------------------ 条件付きの動き

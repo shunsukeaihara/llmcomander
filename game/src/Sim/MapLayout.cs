@@ -129,6 +129,8 @@ public static class MapLayout
             ts.Rally = map.NearestPassable(c + toCenter * 6);
             for (int i = 0; i < 6; i++)
                 world.SpawnUnit(team, UnitKind.Villager, c + new Vector2(-2.5f + i % 3, 2.5f + i / 3));
+            // 斥候を1騎ずつ持って始まる
+            world.SpawnUnit(team, UnitKind.Scout, c + toCenter * 3);
         }
         world.UpdateVision();
         return world;

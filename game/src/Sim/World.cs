@@ -92,7 +92,7 @@ public sealed partial class World
     {
         var role = op.Roles.FirstOrDefault(r => r.Kind == kind);
         if (role != null) return role;
-        var anchor = op.Roles.FirstOrDefault()?.Anchor ?? new Place("集合地点", new[] { Teams[op.Team].Rally });
+        var anchor = op.Roles.FirstOrDefault()?.Anchor ?? new Place(Teams[op.Team].RallyName, new[] { Teams[op.Team].Rally });
         role = new Role(Defs.Ja(kind), anchor) { Kind = kind };
         var like = op.Roles.FirstOrDefault();
         if (like != null) role.Stance = like.Stance;
@@ -130,7 +130,7 @@ public sealed partial class World
             case "enemy_base" or "敵基地":
                 return new Place("敵基地", new[] { BasePos(1 - team) });
             case "rally" or "集合地点":
-                return new Place("集合地点", new[] { ts.Rally });
+                return new Place(ts.RallyName, new[] { ts.Rally });
         }
         var region = Map.FindRegion(n);
         if (region == null) return null;
@@ -145,6 +145,29 @@ public sealed partial class World
     }
 
     // ------------------------------------------------------------ 1ステップ
+
+    /// <summary>新兵の集合場所を変える。予備の部隊もそこで待つ。</summary>
+    public void SetRally(int team, Place place)
+    {
+        var ts = Teams[team];
+        ts.Rally = Map.NearestPassable(place.Center);
+        ts.RallyName = place.Name;
+        var anchor = new Place(place.Name, new[] { ts.Rally });
+        foreach (var r in ts.Reserve.Roles) r.Anchor = anchor;
+        ts.Version++;
+    }
+
+    /// <summary>直接指示の作戦から、兵のいなくなった役割を消す。全部いなくなったら作戦ごと解散する。</summary>
+    private void PruneManualOps(TeamState ts)
+    {
+        foreach (var op in ts.ActiveOps.Where(o => o.IsManual).ToList())
+        {
+            int before = op.Roles.Count;
+            op.Roles.RemoveAll(r => !Members(op, r).Any());
+            if (op.Roles.Count == 0) op.Disbanded = true;
+            if (op.Roles.Count != before) ts.Version++;
+        }
+    }
 
     /// <summary>両チームの視界を計算し直す(0.25秒ごと。試合の開始時にも呼ぶ)。</summary>
     public void UpdateVision()
@@ -170,10 +193,13 @@ public sealed partial class World
         p = Profiler.Begin();
         if (_tick % 5 == 0)
             foreach (var t in Teams) CheckTriggers(t);
+        if (_tick % 20 == 10)
+            foreach (var t in Teams) PruneManualOps(t);
         Profiler.End("条件", p);
 
         p = Profiler.Begin();
         StepBuildings();
+        StepTowers();
         BuildSlots();
         Profiler.End("隊列", p);
         foreach (var u in Units.Values.ToList())
@@ -215,6 +241,8 @@ public sealed partial class World
         }
         foreach (var b in Buildings.Values.Where(b => !b.Alive).ToList())
         {
+            // 中にこもっていた村人は外に出る
+            foreach (var u in Units.Values.Where(u => u.Inside == b.Id)) Eject(u, b);
             Buildings.Remove(b.Id);
             for (int y = b.TileY; y < b.TileY + b.Size; y++)
             for (int x = b.TileX; x < b.TileX + b.Size; x++)
@@ -263,7 +291,7 @@ public sealed partial class World
         float r2 = radius * radius;
         foreach (var o in Units.Values)
         {
-            if (o.Team == u.Team || !o.Alive || !Vision[u.Team].IsVisible(o.Pos)) continue;
+            if (o.Team == u.Team || !o.Alive || o.IsInside || !Vision[u.Team].IsVisible(o.Pos)) continue;
             float d2 = Vector2.DistanceSquared(o.Pos, center);
             if (d2 > r2) continue;
             float score = Vector2.Distance(o.Pos, u.Pos);
@@ -384,7 +412,7 @@ public sealed partial class World
 
     private void Separate()
     {
-        var list = Units.Values.Where(u => u.Alive).ToList();
+        var list = Units.Values.Where(u => u.Alive && !u.IsInside).ToList();
         for (int i = 0; i < list.Count; i++)
         {
             var a = list[i];

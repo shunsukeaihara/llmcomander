@@ -48,7 +48,7 @@ public class CommandTests
         var op = w.Teams[0].FindOp("戦線A")!;
         Assert.Equal(6, w.Members(op, op.FindRole("槍")!).Count());
         Assert.Equal(4, w.Members(op, op.FindRole("騎兵")!).Count());
-        Assert.Empty(w.Members(w.Teams[0].Reserve));
+        Assert.DoesNotContain(w.Members(w.Teams[0].Reserve), u => u.Kind is UnitKind.Spearman or UnitKind.Archer or UnitKind.Cavalry);
 
         // 「弓は引き撃ち、他は撤退」
         ap.Apply(new ToolCall("update_operation", J("""

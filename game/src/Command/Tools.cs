@@ -8,14 +8,16 @@ public static class Tools
 {
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
-    private const string Kinds = "\"spearman\", \"archer\", \"cavalry\", \"villager\"";
+    private const string Kinds = "\"spearman\", \"archer\", \"cavalry\", \"scout\", \"villager\"";
 
     private const string RuleProps = $$"""
-        "stance": {"type": "string", "enum": ["hold", "advance", "retreat"],
+        "stance": {"type": "string", "enum": ["hold", "advance", "retreat", "explore", "patrol"],
                    "description": "hold=場所で待機し近づく敵を迎撃 / advance=場所へ進撃し道中と到着先の敵を攻撃 / retreat=敵を無視して場所へ下がる"},
         "place": {"type": "string", "description": "場所の名前。状況に出ている地名・目印・指示点、または own_base / enemy_base / rally"},
         "formation": {"type": "string", "enum": ["line", "cluster"], "description": "line=場所が線の目印のとき線に沿って横隊 / cluster=密集"},
         "kite": {"type": "boolean", "description": "引き撃ち(近接兵から距離を取りながら射撃)。弓向け"},
+        "radius": {"type": "number", "description": "explore では探索する範囲の半径、patrol では回る半径(マス)。遠巻きなら 12〜16、すぐ近くなら 6〜8"},
+        "evade": {"type": "boolean", "description": "戦わない。敵兵が近づいたり攻撃されたりしたら逃げ、離れたら元の行動に戻る(見張りや偵察向け。explore と patrol では常に有効)"},
         "priority": {"type": "array", "items": {"type": "string", "enum": [{{Kinds}}]}, "description": "優先して狙う兵種(先頭ほど優先)。空配列で優先なし"}
         """;
 
@@ -24,7 +26,7 @@ public static class Tools
           "type": "object",
           "properties": {
             "role": {"type": "string", "description": "役割名。基本は兵種名(槍/弓/騎兵)。同じ兵種を分けるときは「槍(前列)」のように付ける"},
-            "unit_kind": {"type": "string", "enum": ["spearman", "archer", "cavalry"], "description": "この役割の兵種。新しい役割では必須"},
+            "unit_kind": {"type": "string", "enum": ["spearman", "archer", "cavalry", "scout"], "description": "この役割の兵種。新しい役割では必須"},
             "assign_count": {"type": "integer", "description": "この役割に新たに配属する数。-1 で取れるだけ全部。省略すると配属は変えない"},
             "assign_from": {"type": "string", "description": "配属元。reserve(既定)/ selected(プレイヤーが選択中のユニット)/ 作戦名 / any(他の全作戦から)"},
             {{RuleProps}},
@@ -82,9 +84,10 @@ public static class Tools
             "villagers_continuous": {"type": "boolean", "description": "村の中心で村人を作り続ける"},
             "villager_target": {"type": "integer", "description": "村人の目標人数"},
             "train": {"type": "array", "items": {"type": "object",
-                      "properties": {"unit_kind": {"type": "string", "enum": ["spearman", "archer", "cavalry"]},
+                      "properties": {"unit_kind": {"type": "string", "enum": ["spearman", "archer", "cavalry", "scout"]},
                                      "goal": {"type": "integer", "description": "目標の総数。-1 で人口上限まで作り続ける、0 で生産停止"}},
                       "required": ["unit_kind", "goal"]}},
+            "rally": {"type": "string", "description": "新兵の集合場所(予備の兵が待つ場所)。地名・目印・指示点、own_base など"},
             "reinforce": {"type": "object", "description": "新しく作った兵の配属先",
                           "properties": {"operation": {"type": "string"}, "role": {"type": "string"}}, "required": ["operation"]},
             "change_summary": {"type": "string"}
@@ -117,13 +120,22 @@ public static class Tools
         "建設計画を取り消す。plan_ids を省略すると確認待ちを全部。",
         J("""{"type": "object", "properties": {"plan_ids": {"type": "array", "items": {"type": "integer"}}}}"""));
 
+    public static readonly ToolSpec Garrison = new("garrison",
+        "村人を村の中心にこもらせる / 外に出す。中の村人は攻撃されず、村の中心は中の人数と同じ本数の矢を撃つ(最大15人)。",
+        J("""
+        {"type": "object",
+         "properties": {"action": {"type": "string", "enum": ["enter", "leave"], "description": "enter=こもる / leave=全員外に出て仕事に戻る"},
+                        "count": {"type": "integer", "description": "enter のときの人数。-1 または省略で全員"}},
+         "required": ["action"]}
+        """));
+
     public static readonly ToolSpec Reply = new("reply",
         "プレイヤーへの短い返答。指示が曖昧で実行できないとき、質問に答えるときに使う。命令を実行できたときは不要。",
         J("""{"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}"""));
 
     public static readonly IReadOnlyList<ToolSpec> CommanderTools = new[]
     {
-        UpdateOperation, DisbandOperation, SetEconomy, ProposeBuild, ConfirmBuild, CancelBuild, Reply,
+        UpdateOperation, DisbandOperation, SetEconomy, ProposeBuild, ConfirmBuild, CancelBuild, Garrison, Reply,
     };
 
     // ------------------------------------------------------------ 担当LLM(作戦ごと)
@@ -165,6 +177,13 @@ public static class Tools
         - 兵は必ずどれか一つの作戦に属する。作戦は役割(兵種ごと)を持ち、役割ごとに交戦規則(stance / place / formation / kite / priority)がある。
         - 「予備」は作戦に属していない兵の置き場。新兵は既定で予備に入る。「経済」は村人の作戦。
         - ユニットは規則に従って自律的に動き続ける。あなたは規則と割り当てを変えるだけ。
+        - 斥候(scout)は速く視界が広いが弱い。偵察は役割の規則の組み合わせで表す:
+          - 「周りを少しずつ探索」→ stance=explore, place=中心(own_base など)。範囲を絞るなら radius。
+          - 「敵の金鉱を探して」→ explore, place=enemy_base, radius=25 など(見つけた資源は状況の「見つけた資源」に出る)。
+          - 「敵の拠点を遠巻きに回って偵察」→ stance=patrol, place=enemy_base, radius=14 前後。
+          - 「〜を見張って、攻撃されたら逃げて」→ stance=hold, place=見張る場所, evade=true。
+        - 「村人を村の中心に避難」「こもって守れ」は garrison(enter)、「外に出て仕事に戻れ」は garrison(leave)。
+        - 「新兵は〜に集めて」は set_economy の rally。
         - 霧がある。状況に出る敵は自軍から見えているものと、最後に見た位置の記録だけ。ユニットも見えている敵しか狙わない。敵の様子がわからないときは、少数の騎兵で偵察する作戦を作るとよい。
 
         # 指示の解釈
