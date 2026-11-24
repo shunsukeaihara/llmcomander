@@ -218,3 +218,29 @@ public class RouteTests
         Assert.Contains(w.Teams[0].FindOp("奇襲")!.Changes, c => c.Text.Contains("次に北の丘"));
     }
 }
+
+public class ChaseTests
+{
+    /// <summary>巡回中の斥候を騎兵が追う。斥候は逃げ切り、騎兵は追いつけないと諦めて本来の行き先へ戻る。</summary>
+    [Fact]
+    public void ScoutEscapesAndChaserGivesUp()
+    {
+        var w = MapLayout.CreateValley();
+        var scout = w.TeamUnits(0).First(u => u.Kind == UnitKind.Scout);
+        new Applier(w, 0).Apply(new ToolCall("update_operation", JsonDocument.Parse("""
+            {"operation": "遠巻き", "change_summary": "", "roles": [{"role": "斥候", "unit_kind": "scout", "stance": "patrol", "place": "中央", "radius": 10}]}
+            """).RootElement.Clone()), "", Array.Empty<int>());
+        for (int i = 0; i < 20 * 15; i++) w.Step();
+        var enemy = w.SpawnUnit(1, UnitKind.Cavalry, scout.Pos + new Vector2(5, -3));
+        new Applier(w, 1).Apply(new ToolCall("update_operation", JsonDocument.Parse("""
+            {"operation": "攻撃隊", "change_summary": "", "roles": [{"role": "騎兵", "unit_kind": "cavalry", "stance": "advance", "place": "西の平地"}]}
+            """).RootElement.Clone()), "", Array.Empty<int>());
+        for (int i = 0; i < 20 * 20; i++) w.Step();
+        Assert.True(scout.Alive);
+        Assert.True(Vector2.Distance(scout.Pos, enemy.Pos) > 12, "騎兵が斥候を追い続けている");
+        // 騎兵は本来の行き先(西の平地)へ向かっている
+        Assert.True(Vector2.Distance(enemy.Pos, w.Map.FindRegion("west_base")!.Center) < 20);
+        // 斥候は巡回の輪の近くに戻っている
+        Assert.InRange(Vector2.Distance(scout.Pos, new Vector2(40, 40)), 4f, 18f);
+    }
+}

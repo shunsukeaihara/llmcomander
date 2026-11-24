@@ -57,6 +57,18 @@ public sealed class Unit : Entity
     public Anim Anim;
     public float AnimTime;
     public float LastFoughtAt = -999;
+    /// <summary>逃げている間の期限と、逃げている相手(離れきるまで逃げ続ける)。</summary>
+    public float FleeUntil = -999;
+    public int FleeFrom;
+    /// <summary>巡回の向き(1=右回り、-1=左回り)。敵がいる側を避けて向きを変える。</summary>
+    public int PatrolDir = 1;
+    /// <summary>追いかけている相手と、追い始めた時刻・距離。追いつけない相手は諦める。</summary>
+    public int ChaseId;
+    public float ChaseSince;
+    public float ChaseStartDist;
+    /// <summary>諦めた相手。期限まで狙わない。</summary>
+    public int IgnoreId;
+    public float IgnoreUntil = -999;
 
     /// <summary>探索中の次の行き先と、それを決めた時刻。</summary>
     public Vector2? ExploreGoal;

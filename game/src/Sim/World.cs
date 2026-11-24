@@ -446,6 +446,7 @@ public sealed partial class World
         foreach (var o in Units.Values)
         {
             if (o.Team == u.Team || !o.Alive || o.IsInside || !Vision[u.Team].IsVisible(o.Pos)) continue;
+            if (o.Id == u.IgnoreId && Time < u.IgnoreUntil) continue; // 追いつけずに諦めた相手
             float d2 = Vector2.DistanceSquared(o.Pos, center);
             if (d2 > r2) continue;
             float score = Vector2.Distance(o.Pos, u.Pos);
@@ -492,8 +493,32 @@ public sealed partial class World
         }
         if (d <= Reach(u, t))
         {
+            u.ChaseId = 0;
             if (u.Cooldown <= 0) Damage(u, t);
             return;
+        }
+        // 追いかけても距離が縮まらない相手(速い斥候など)は、しばらく諦めて本来の行動に戻る
+        if (t is Unit tu)
+        {
+            if (u.ChaseId != tu.Id)
+            {
+                u.ChaseId = tu.Id;
+                u.ChaseSince = (float)Time;
+                u.ChaseStartDist = d;
+            }
+            else if (Time - u.ChaseSince > 4f)
+            {
+                if (d > u.ChaseStartDist - 1f)
+                {
+                    u.IgnoreId = tu.Id;
+                    u.IgnoreUntil = (float)Time + 10f;
+                    u.ChaseId = 0;
+                    return;
+                }
+                // 縮まっていれば追い続ける(次の4秒で、また縮まっているかを見る)
+                u.ChaseSince = (float)Time;
+                u.ChaseStartDist = d;
+            }
         }
         MoveTo(u, t.Pos, Reach(u, t) * 0.9f);
     }

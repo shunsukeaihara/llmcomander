@@ -126,7 +126,7 @@ public sealed partial class World
             Entity? t = null;
             if (Vector2.Distance(u.Pos, slot) < leash)
                 t = PickTarget(u, role, u.Pos, 5.5f, false) ?? PickTarget(u, role, anchor, 6f, false);
-            if (t == null && Time - u.LastHitAt < 1.5 && Units.TryGetValue(u.LastAttacker, out var atk) && atk.Alive &&
+            if (t == null && Time - u.LastHitAt < 1.5 && Units.TryGetValue(u.LastAttacker, out var atk) && atk.Alive && !(atk.Id == u.IgnoreId && Time < u.IgnoreUntil) &&
                 Vector2.Distance(atk.Pos, slot) < leash)
                 t = atk;
             if (t != null) Engage(u, role, t);
@@ -147,23 +147,82 @@ public sealed partial class World
     /// <summary>
     /// 場所を中心に、内側の輪から順に未探索の場所を回る。戦わず、敵兵が近づいたら距離を取る。
     /// </summary>
-    /// <summary>見えている敵兵が近いか、少し前に攻撃されていたら、離れる方向へ逃げる。逃げたら true。</summary>
+    /// <summary>
+    /// 見えている敵兵が近いか、少し前に攻撃されていたら逃げる。逃げたら true。
+    /// 一度逃げ始めたら、相手から十分離れるまで逃げ続ける(境目で逃げる/戻るを繰り返さないため)。
+    /// </summary>
     private bool Flee(Unit u)
     {
-        var threat = Units.Values
-            .Where(o => o.Team != u.Team && o.Alive && !o.IsInside && o.Kind != UnitKind.Villager && Vision[u.Team].IsVisible(o.Pos))
-            .OrderBy(o => Vector2.DistanceSquared(o.Pos, u.Pos)).FirstOrDefault();
-        Vector2? from = null;
-        if (threat != null && Vector2.Distance(threat.Pos, u.Pos) < Math.Max(5f, threat.Stats.Range + 2.5f)) from = threat.Pos;
+        const float startDist = 5f, safeDist = 9f;
+        var vis = Vision[u.Team];
+        var threats = Units.Values
+            .Where(o => o.Team != u.Team && o.Alive && !o.IsInside && o.Kind != UnitKind.Villager && vis.IsVisible(o.Pos)
+                        && Vector2.Distance(o.Pos, u.Pos) < safeDist + 2)
+            .ToList();
+        var nearest = threats.OrderBy(o => Vector2.DistanceSquared(o.Pos, u.Pos)).FirstOrDefault();
+        bool fleeing = Time < u.FleeUntil;
+        if (nearest != null && Vector2.Distance(nearest.Pos, u.Pos) < Math.Max(startDist, nearest.Stats.Range + 2.5f))
+        {
+            u.FleeUntil = (float)Time + 2f;
+            fleeing = true;
+        }
         else if (Time - u.LastHitAt < 1.5)
-            from = Units.TryGetValue(u.LastAttacker, out var a) ? a.Pos : Buildings.TryGetValue(u.LastAttacker, out var b) ? b.Pos : null;
-        if (from is not { } f) return false;
-        var away = Vector2.Normalize(u.Pos - f + new Vector2(0.001f, 0));
-        var dest = Map.NearestPassable(u.Pos + away * 4);
-        if (Vector2.Distance(dest, u.Pos) < 0.5f) dest = Map.NearestPassable(u.Pos + new Vector2(-away.Y, away.X) * 4);
-        MoveTo(u, dest, 0.3f);
-        u.ExploreGoal = null;
+        {
+            u.FleeUntil = (float)Time + 2f;
+            fleeing = true;
+            if (Units.TryGetValue(u.LastAttacker, out var a) && a.Alive && !threats.Contains(a)) threats.Add(a);
+            else if (Buildings.TryGetValue(u.LastAttacker, out var b))
+            {
+                FleeStep(u, new List<Vector2> { b.Pos });
+                return true;
+            }
+        }
+        else if (fleeing && (nearest == null || Vector2.Distance(nearest.Pos, u.Pos) > safeDist))
+        {
+            // 十分離れた(か、見えなくなった)ので逃げるのをやめる
+            u.FleeUntil = -999;
+            fleeing = false;
+        }
+        else if (fleeing && nearest != null)
+        {
+            u.FleeUntil = (float)Time + 0.5f; // まだ近い。逃げ続ける
+        }
+        if (!fleeing) return false;
+        if (threats.Count == 0) { u.FleeUntil = -999; return false; }
+        FleeStep(u, threats.Select(o => o.Pos).ToList());
         return true;
+    }
+
+    /// <summary>8方向から、敵から一番離れられて、壁際・森の手前にならない向きを選んで逃げる。</summary>
+    private void FleeStep(Unit u, List<Vector2> threats)
+    {
+        Vector2 best = u.Pos;
+        float bestScore = float.MinValue;
+        for (int i = 0; i < 16; i++)
+        {
+            float a = i * MathF.PI / 8;
+            var dir = new Vector2(MathF.Cos(a), MathF.Sin(a));
+            var p = u.Pos + dir * 4;
+            if (!Map.Passable(p) || !Map.LineClear(u.Pos, p)) continue;
+            float score = threats.Min(t => Vector2.Distance(p, t));
+            // 先がまだ開けているか(行き止まりに追い込まれない)
+            var far = u.Pos + dir * 8;
+            if (!Map.Passable(far)) score -= 3;
+            // 地図の縁に近づきすぎない
+            float edge = MathF.Min(MathF.Min(p.X, Map.W - p.X), MathF.Min(p.Y, Map.H - p.Y));
+            if (edge < 5) score -= (5 - edge) * 0.8f;
+            // 今の進行方向に近い向きを少し好む(左右に振れない)
+            if (u.Facing.LengthSquared() > 0) score += Vector2.Dot(dir, u.Facing) * 0.5f;
+            if (score > bestScore) { bestScore = score; best = p; }
+        }
+        if (best == u.Pos)
+        {
+            var away = Vector2.Normalize(u.Pos - threats[0] + new Vector2(0.001f, 0));
+            best = Map.NearestPassable(u.Pos + away * 4);
+        }
+        u.Path = null;
+        MoveStep(u, best);
+        u.ExploreGoal = null;
     }
 
     /// <summary>場所の周りを半径 Radius(既定10)で回り続ける。</summary>
@@ -179,8 +238,17 @@ public sealed partial class World
         // 今いる角度から少し先の、輪の上の地点へ(右回り)
         var rel = u.Pos - c;
         float ang = rel.LengthSquared() < 0.01f ? 0 : MathF.Atan2(rel.Y, rel.X);
-        float next = Vector2.Distance(u.Pos, c) < r * 0.6f || Vector2.Distance(u.Pos, c) > r * 1.4f ? ang : ang + 0.6f;
+        bool onRing = !(Vector2.Distance(u.Pos, c) < r * 0.6f || Vector2.Distance(u.Pos, c) > r * 1.4f);
+        float next = onRing ? ang + 0.6f * u.PatrolDir : ang;
         var p = c + new Vector2(MathF.Cos(next), MathF.Sin(next)) * r;
+        // 行き先の近くに敵兵が見えていたら、逆回りにする
+        if (onRing && Units.Values.Any(o => o.Team != u.Team && o.Alive && !o.IsInside && o.Kind != UnitKind.Villager
+                                            && Vision[u.Team].IsVisible(o.Pos) && Vector2.Distance(o.Pos, p) < 7))
+        {
+            u.PatrolDir = -u.PatrolDir;
+            next = ang + 0.6f * u.PatrolDir;
+            p = c + new Vector2(MathF.Cos(next), MathF.Sin(next)) * r;
+        }
         p = new Vector2(Math.Clamp(p.X, 1, Map.W - 1), Math.Clamp(p.Y, 1, Map.H - 1));
         u.ExploreGoal = Map.NearestPassable(p, 6);
         u.ExploreAt = (float)Time;
