@@ -180,6 +180,34 @@ def barracks():
     part("box", "banner", (0.05, 0.8, 1.2), (-s * 0.35, s * 0.3 + 0.42, 2.8), team, None)
 
 
+def storehouse():
+    """採集所(敷地は2×2タイル): 柱と片流れの屋根だけの小屋に、木箱・樽・丸太・袋・金の山。"""
+    stone, wood, team = material("stone", STONE), material("wood", WOOD), material("team", TEAM)
+    dark, gold, cloth = material("dark", DARK_WOOD), material("gold", GOLD), material("cloth", CLOTH)
+    s = TILE_M * 2 * 0.86
+    part("box", "floor", (s, s, 0.3), (0, 0, 0.15), stone, None)
+    h = 2.4
+    for dx in (-1, 1):
+        for dy in (-1, 1):
+            part("box", f"post{dx}{dy}", (0.25, 0.25, h), (dx * s * 0.42, dy * s * 0.42, 0.3 + h / 2), wood, None)
+    prism("roof", (s * 0.98, s * 0.98, 0.9), (0, 0, 0.3 + h + 0.45), team)
+    # 奥の壁(板張り)
+    part("box", "wall", (0.15, s * 0.84, h * 0.8), (-s * 0.42, 0, 0.3 + h * 0.4), dark, None)
+    # 木箱と樽
+    for i, (x, y) in enumerate([(-0.25, -0.3), (-0.25, 0.05), (-0.05, -0.3)]):
+        part("box", f"crate{i}", (0.9, 0.9, 0.9), (x * s, y * s, 0.75), wood, None)
+    part("box", "crate_top", (0.8, 0.8, 0.8), (-0.25 * s, -0.3 * s, 1.6), wood, None)
+    for i, (x, y) in enumerate([(0.2, -0.32), (0.32, -0.12)]):
+        part("cyl", f"barrel{i}", (0.4, 0.4, 0.9), (x * s, y * s, 0.75), dark, None)
+    # 丸太の山(手前右)
+    for i, (dy, z) in enumerate([(0.0, 0.41), (0.44, 0.41), (0.22, 0.8)]):
+        part("cyl", f"log{i}", (0.42, 0.42, 1.8), (s * 0.22, s * 0.14 + dy, z), wood, None, rot=(0, math.pi / 2, 0))
+    # 袋と金の小山(手前左)
+    for i in range(3):
+        ico(f"sack{i}", 0.35, (-s * 0.05 + i * 0.45, s * 0.3, 0.55), cloth, squash=0.75)
+    ico("goldpile", 0.45, (s * 0.32, -s * 0.38 + 0.9, 0.45), gold, squash=0.6)
+
+
 # 名前: (作る関数, 最終の幅, 高さ, 注視点の高さ m)
 PROPS = {
     **{f"tree_broad_{i}": (lambda i=i: tree_broad(i), 96, 128, 3.3) for i in range(3)},
@@ -188,6 +216,7 @@ PROPS = {
     "berry": (berry_bush, 48, 48, 0.9),
     "town_center": (town_center, 224, 224, 4.6),
     "barracks": (barracks, 224, 224, 4.6),
+    "storehouse": (storehouse, 160, 144, 2.0),
 }
 
 

@@ -155,14 +155,14 @@ public partial class WorldView : Node2D
     }
 
     private static string BuildingSprite(BuildingKind k, int team) =>
-        $"{(k == BuildingKind.TownCenter ? "town_center" : "barracks")}_{(team == 0 ? "blue" : "red")}";
+        $"{Defs.Key(k)}_{(team == 0 ? "blue" : "red")}";
 
     private void DrawBuilding(Building b, bool ghost)
     {
         if (Props != null && DrawBuildingSprite(b)) return;
         var c = Iso.ToScreen(b.Pos);
         if (!OnScreen(c, 140)) return;
-        float height = b.Kind == BuildingKind.TownCenter ? 34 : 24;
+        float height = b.Kind == BuildingKind.TownCenter ? 34 : b.Kind == BuildingKind.Storehouse ? 16 : 24;
         var roof = b.Kind == BuildingKind.TownCenter ? Palette.Team[b.Team] : Palette.Team[b.Team].Darkened(0.2f);
         if (!b.Done)
         {
@@ -207,7 +207,7 @@ public partial class WorldView : Node2D
         for (int i = 0; i < 4; i++) DrawDashedLine(poly[i], poly[(i + 1) % 4], col, 2, 6);
         // 仮置きは建物の絵を薄く重ねる(絵がなければ箱)
         if (Props == null || !Props.Draw(this, BuildingSprite(p.Kind, 0), Iso.ToScreen(p.Center), new Color(0.75f, 0.9f, 1f, 0.45f)))
-            DrawBox(p.TileX, p.TileY, size, p.Kind == BuildingKind.TownCenter ? 34 : 24, Palette.Team[0], 0.35f, 1);
+            DrawBox(p.TileX, p.TileY, size, p.Kind == BuildingKind.TownCenter ? 34 : p.Kind == BuildingKind.Storehouse ? 16 : 24, Palette.Team[0], 0.35f, 1);
     }
 
     private void DrawBar(Vector2 center, float frac, Color color)

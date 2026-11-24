@@ -30,6 +30,8 @@ public static class DemoScenario
         ts.Stock[Res.Wood] = 900;
         ts.Stock[Res.Gold] = 400;
         w.SpawnBuilding(0, BuildingKind.Barracks, 21, 58);
+        // 木の実のそばの採集所
+        if (w.FindBuildSite(BuildingKind.Storehouse, new SVec(12.5f, 61)) is { } st) w.SpawnBuilding(0, BuildingKind.Storehouse, st.X, st.Y);
         for (int i = 0; i < 16; i++) w.SpawnUnit(0, UnitKind.Villager, new SVec(19, 62));
         for (int i = 0; i < 9; i++) w.SpawnUnit(0, UnitKind.Spearman, new SVec(26 + i % 3, 50 + i / 3));
         for (int i = 0; i < 10; i++) w.SpawnUnit(0, UnitKind.Archer, new SVec(24 + i % 4, 54 + i / 4));

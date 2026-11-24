@@ -52,6 +52,10 @@ public static class Context
         sb.AppendLine($"村人 {villagers.Count}人: " +
                       string.Join(", ", Enum.GetValues<Res>().Select(r => $"{Defs.Ja(r)}({Defs.Key(r)}) {counts[r]}/{ts.Gather[r]}")) +
                       $", 建設中 {building}, 待機 {idle}");
+        var haul = w.HaulDistance(ts.Team);
+        if (haul.Count > 0)
+            sb.AppendLine("置き場までの距離(往復の長さ。6マスを超えると採集が目に見えて遅い。採集所で縮められる): " +
+                          string.Join(", ", haul.Select(kv => $"{Defs.Ja(kv.Key)} {kv.Value:0}マス")));
         sb.AppendLine($"村人の生産: {(ts.VillagersContinuous ? $"継続(目標{ts.VillagerTarget}人)" : "停止")}");
         sb.AppendLine("兵の生産目標: " + string.Join(", ", ts.TrainGoal.Select(kv =>
             $"{Defs.Ja(kv.Key)} {(kv.Value < 0 ? "上限まで継続" : kv.Value == 0 ? "なし" : kv.Value + "体")}")));
@@ -123,7 +127,7 @@ public static class Context
     {
         var d = new Dictionary<string, SiteCandidate>();
         int n = 1;
-        foreach (var kind in new[] { BuildingKind.TownCenter, BuildingKind.Barracks })
+        foreach (var kind in new[] { BuildingKind.TownCenter, BuildingKind.Barracks, BuildingKind.Storehouse })
             foreach (var c in w.BuildCandidates(team, kind))
                 d[$"候補地{n++}"] = c;
         return d;

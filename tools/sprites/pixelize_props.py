@@ -16,7 +16,7 @@ from PIL import Image
 from pixelize import outline, recolor, shrink
 
 TEAM_FILES = {"red": None, "blue": 215}
-BUILDINGS = {"town_center", "barracks"}
+BUILDINGS = {"town_center", "barracks", "storehouse"}
 
 
 def main():

@@ -45,6 +45,22 @@ public sealed partial class World
                 points.Add((center + toward * 4.5f, $"{Defs.Ja(res)}の資源のそば"));
             }
         }
+        else if (kind == BuildingKind.Storehouse)
+        {
+            // 今の置き場(村の中心・採集所)から遠い、見つけた資源のそば
+            var drops = DropoffPositions(team);
+            foreach (var (center, res) in ResourceClusters())
+            {
+                if (!Vision[team].IsExplored((int)center.X, (int)center.Y)) continue;
+                float toDrop = drops.Count > 0 ? drops.Min(d => Vector2.Distance(d, center)) : 99;
+                if (toDrop < 7) continue;
+                if (Vision[team].Buildings.Values.Any(b => Vector2.Distance(center, new Vector2(b.TileX + 1.5f, b.TileY + 1.5f)) < 12)) continue;
+                var toward = Vector2.Normalize(home - center + new Vector2(0.001f, 0));
+                points.Add((center + toward * 2.5f, $"{Defs.Ja(res)}の資源のそば。今の置き場から{toDrop:0}"));
+            }
+            foreach (var (edge, toDrop) in ForestEdges(team, drops))
+                points.Add((edge, $"森の縁。今の置き場から{toDrop:0}"));
+        }
         else
         {
             var side = new Vector2(-toFront.Y, toFront.X);
@@ -68,7 +84,56 @@ public sealed partial class World
                 NearestNode(Res.Gold, c), NearestTree(c), NearestNode(Res.Food, c),
                 Vector2.Distance(c, home), KnownEnemyBase(team) is { } eb ? Vector2.Distance(c, eb) : null, enemies));
         }
-        return result.OrderBy(r => r.FromOwnBase).Take(kind == BuildingKind.TownCenter ? 5 : 4).ToList();
+        return result.OrderBy(r => r.FromOwnBase).Take(kind == BuildingKind.Barracks ? 4 : 5).ToList();
+    }
+
+    /// <summary>今の置き場から離れた、自軍基地に近い森の縁(採集所の候補)。互いに離れた2か所まで。</summary>
+    private List<(Vector2 pos, float toDrop)> ForestEdges(int team, List<Vector2> drops)
+    {
+        var home = BasePos(team);
+        var found = new List<(Vector2 pos, float toDrop, float fromHome)>();
+        for (int y = 3; y < Map.H - 3; y++)
+        for (int x = 3; x < Map.W - 3; x++)
+        {
+            if (Map.At(x, y) != Tile.Grass || !Vision[team].IsExplored(x, y)) continue;
+            var p = new Vector2(x + 0.5f, y + 0.5f);
+            float fromHome = Vector2.Distance(p, home);
+            if (fromHome > 30) continue;
+            bool edge = Map.At(x + 1, y) == Tile.Forest || Map.At(x - 1, y) == Tile.Forest || Map.At(x, y + 1) == Tile.Forest || Map.At(x, y - 1) == Tile.Forest;
+            if (!edge) continue;
+            float toDrop = drops.Count > 0 ? drops.Min(d => Vector2.Distance(d, p)) : 99;
+            if (toDrop < 9) continue;
+            found.Add((p, toDrop, fromHome));
+        }
+        var picked = new List<(Vector2, float)>();
+        foreach (var f in found.OrderBy(f => f.fromHome))
+        {
+            if (picked.Any(q => Vector2.Distance(q.Item1, f.pos) < 10)) continue;
+            picked.Add((f.pos, f.toDrop));
+            if (picked.Count == 2) break;
+        }
+        return picked;
+    }
+
+    /// <summary>「金の近くに採集所」の場所。置き場から遠いのに使われている(使われそうな)資源のそば。</summary>
+    public Vector2? StorehouseSpot(int team, Res r)
+    {
+        var home = BasePos(team);
+        var drops = DropoffPositions(team);
+        float ToDrop(Vector2 p) => drops.Count > 0 ? drops.Min(d => Vector2.Distance(d, p)) : 99;
+        // 今その資源を採っている村人がいれば、その仕事場のそば
+        var working = TeamUnits(team).Where(v => v.Kind == UnitKind.Villager && v.Job == JobKind.Gather && v.JobRes == r && !v.Returning && ToDrop(v.Pos) > 6).ToList();
+        if (working.Count > 0)
+        {
+            var c = new Vector2(working.Average(v => v.Pos.X), working.Average(v => v.Pos.Y));
+            return c + Vector2.Normalize(home - c + new Vector2(0.001f, 0)) * 2f;
+        }
+        if (r == Res.Wood)
+            return ForestEdges(team, drops).Select(e => (Vector2?)e.pos).FirstOrDefault() ?? NearestResourcePos(team, r, home);
+        var node = Nodes.Where(n => n.Kind == r && n.Amount > 0 && Vision[team].IsExplored((int)n.Pos.X, (int)n.Pos.Y))
+            .OrderBy(n => ToDrop(n.Pos) > 6 ? 0 : 1).ThenBy(n => Vector2.Distance(n.Pos, home)).FirstOrDefault();
+        if (node == null) return null;
+        return node.Pos + Vector2.Normalize(home - node.Pos + new Vector2(0.001f, 0)) * 2.5f;
     }
 
     /// <summary>金と食の資源を、近いものどうしでまとめた中心。</summary>

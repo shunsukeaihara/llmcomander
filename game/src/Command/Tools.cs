@@ -104,7 +104,7 @@ public static class Tools
         {
           "type": "object",
           "properties": {
-            "building": {"type": "string", "enum": ["town_center", "barracks"]},
+            "building": {"type": "string", "enum": ["town_center", "barracks", "storehouse"]},
             "site": {"type": "string", "description": "状況の「建設候補地」の名前(例: 候補地2)。プレイヤーの条件に一番合うものを選ぶ"},
             "near": {"type": "string", "description": "候補地に合うものがないときだけ使う。どこの近くか: 地名・目印・指示点、own_base、資源 food / wood / gold、まだ使っていない金鉱なら new_gold"},
             "count": {"type": "integer"},
@@ -267,7 +267,9 @@ public static class Tools
         # ゲームの仕組み
         - 兵種は槍・弓・騎兵の三すくみ。槍は騎兵に強い、騎兵は弓に強い、弓は槍に強い(射程で一方的に削れる)。
         - 村人は食・木・金を集める。兵舎で槍(食35 木25)、弓(木25 金45)、騎兵(食60 金75)を作る。村人は食50。
-        - 建物: 村の中心(木275 金100。村人の生産と資源の受け取り)、兵舎(木175)。
+        - 建物: 村の中心(木275 金100。村人の生産と資源の受け取り)、兵舎(木175)、採集所(storehouse。木100。村人が食・木・金を置ける)。
+        - 村人は資源を置き場(村の中心・採集所)まで運ぶ。置き場までの距離が長いと採集が遅いので、遠い資源を採るときは採集所をそばに建てる。
+          「金鉱の近くに採集所」→ propose_build(building=storehouse, site=金の資源のそばの候補地)。候補地がなければ near=gold / wood / food。
         - 兵は必ずどれか一つの作戦に属する。作戦は役割(兵種ごと)を持ち、役割ごとに交戦規則(stance / place / formation / kite / priority)がある。
         - 作戦にはそれぞれ担当(部隊長のLLM)が付き、作戦の目的(goal)を見て、数秒ごとに行き先・構え・部隊の分け方を決め続ける。
           あなたは規則をざっくり置いて、規則の部品に収まらない意図(順番・条件・程度・様子を見て判断することなど)は goal に言葉で書いて任せる。

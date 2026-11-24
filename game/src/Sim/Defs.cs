@@ -4,7 +4,7 @@ namespace LlmCommander.Sim;
 
 public enum UnitKind { Villager, Spearman, Archer, Cavalry, Scout }
 
-public enum BuildingKind { TownCenter, Barracks }
+public enum BuildingKind { TownCenter, Barracks, Storehouse }
 
 public enum Res { Food, Wood, Gold }
 
@@ -41,6 +41,8 @@ public static class Defs
     {
         [BuildingKind.TownCenter] = new(2400, 3, 275, 100, 60f),
         [BuildingKind.Barracks] = new(1200, 3, 175, 0, 30f),
+        // 採集所: 村人が食・木・金を置ける小さな建物。遠い資源のそばに建てて往復を短くする
+        [BuildingKind.Storehouse] = new(600, 2, 100, 0, 20f),
     };
 
     /// <summary>三すくみの追加ダメージ。槍→騎兵、騎兵→弓、弓→槍。</summary>
@@ -70,6 +72,7 @@ public static class Defs
     {
         BuildingKind.TownCenter => "村の中心",
         BuildingKind.Barracks => "兵舎",
+        BuildingKind.Storehouse => "採集所",
         _ => k.ToString(),
     };
 
@@ -77,7 +80,15 @@ public static class Defs
 
     /// <summary>LLMとのやり取りで使う英語名。</summary>
     public static string Key(UnitKind k) => k.ToString().ToLowerInvariant();
-    public static string Key(BuildingKind k) => k == BuildingKind.TownCenter ? "town_center" : "barracks";
+    public static string Key(BuildingKind k) => k switch
+    {
+        BuildingKind.TownCenter => "town_center",
+        BuildingKind.Barracks => "barracks",
+        _ => "storehouse",
+    };
+
+    /// <summary>村人が資源を置ける建物か。</summary>
+    public static bool IsDropoff(BuildingKind k) => k is BuildingKind.TownCenter or BuildingKind.Storehouse;
     public static string Key(Res r) => r.ToString().ToLowerInvariant();
 
     public static bool TryParseUnit(string? s, out UnitKind kind)
@@ -101,6 +112,8 @@ public static class Defs
         {
             case "town_center" or "towncenter" or "村の中心": kind = BuildingKind.TownCenter; return true;
             case "barracks" or "兵舎": kind = BuildingKind.Barracks; return true;
+            case "storehouse" or "camp" or "mill" or "lumber_camp" or "mining_camp" or "採集所" or "倉庫" or "採掘所" or "伐採所" or "製粉所":
+                kind = BuildingKind.Storehouse; return true;
         }
         return false;
     }

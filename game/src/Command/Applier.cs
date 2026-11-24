@@ -359,7 +359,8 @@ public sealed class Applier
         if (pos == null)
         {
             if (near == "new_gold") pos = _w.NearResource(_team, Res.Gold, _w.BasePos(_team), unclaimed: true);
-            else if (Defs.TryParseRes(near, out var res)) pos = _w.NearResource(_team, res, _w.BasePos(_team), unclaimed: false);
+            else if (Defs.TryParseRes(near, out var res))
+                pos = kind == BuildingKind.Storehouse ? _w.StorehouseSpot(_team, res) : _w.NearResource(_team, res, _w.BasePos(_team), unclaimed: false);
             else pos = PlaceOf(near)?.Center;
         }
         if (pos == null) return $"建設場所「{near}」が見つかりません";

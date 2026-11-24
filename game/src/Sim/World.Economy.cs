@@ -187,12 +187,12 @@ public sealed partial class World
     }
 
     private Building? NearestDropoff(Unit u) =>
-        TeamBuildings(u.Team).Where(b => b.Kind == BuildingKind.TownCenter && b.Done)
+        TeamBuildings(u.Team).Where(b => Defs.IsDropoff(b.Kind) && b.Done)
             .OrderBy(b => Vector2.DistanceSquared(b.Pos, u.Pos)).FirstOrDefault();
 
     private ResourceNode? FindNode(Res r, Vector2 from, int team)
     {
-        var drops = TeamBuildings(team).Where(b => b.Kind == BuildingKind.TownCenter && b.Done).Select(b => b.Pos).ToList();
+        var drops = DropoffPositions(team);
         return Nodes.Where(n => n.Kind == r && n.Amount > 0)
             .Where(n => drops.Count == 0 || drops.Min(d => Vector2.Distance(d, n.Pos)) < 18)
             .OrderBy(n => Vector2.Distance(n.Pos, from) + (drops.Count > 0 ? drops.Min(d => Vector2.Distance(d, n.Pos)) : 0))
@@ -361,6 +361,28 @@ public sealed partial class World
             if (best != null) return best;
         }
         return null;
+    }
+
+    /// <summary>資源を置ける建物(村の中心・採集所)の位置。</summary>
+    public List<Vector2> DropoffPositions(int team) =>
+        TeamBuildings(team).Where(b => Defs.IsDropoff(b.Kind) && b.Done).Select(b => b.Pos).ToList();
+
+    /// <summary>
+    /// 資源ごとの、採っている場所(なければ一番近い資源)から一番近い置き場までの距離。往復の長さの目安。
+    /// </summary>
+    public Dictionary<Res, float> HaulDistance(int team)
+    {
+        var drops = DropoffPositions(team);
+        var result = new Dictionary<Res, float>();
+        if (drops.Count == 0) return result;
+        float ToDrop(Vector2 p) => drops.Min(d => Vector2.Distance(d, p)) - 1.5f;
+        foreach (Res r in Enum.GetValues<Res>())
+        {
+            var working = TeamUnits(team).Where(v => v.Kind == UnitKind.Villager && v.Job == JobKind.Gather && v.JobRes == r && !v.Returning).ToList();
+            if (working.Count > 0) result[r] = MathF.Max(0, working.Average(v => ToDrop(v.Pos)));
+            else if (NearestResourcePos(team, r, BasePos(team)) is { } p) result[r] = MathF.Max(0, ToDrop(p));
+        }
+        return result;
     }
 
     /// <summary>資源の種類で指定された場所の近く、建物が建てやすい地点(村の中心を資源の近くに、など)。</summary>

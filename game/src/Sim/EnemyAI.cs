@@ -55,6 +55,20 @@ public sealed class EnemyAI
             if (site is { } s)
                 T.Plans.Add(new BuildPlan { Id = _w.NextId(), Kind = BuildingKind.Barracks, TileX = s.X, TileY = s.Y, Status = PlanStatus.Confirmed, Near = "base" });
         }
+        // 往復が長い資源のそばに採集所を建てる(プレイヤーと同じ建物、同じ費用)
+        bool storePending = T.Plans.Any(p => p.Kind == BuildingKind.Storehouse && p.Status is PlanStatus.Confirmed or PlanStatus.Building);
+        int stores = _w.TeamBuildings(_team).Count(b => b.Kind == BuildingKind.Storehouse);
+        if (!storePending && stores < 4 && _w.Time > 90)
+        {
+            var haul = _w.HaulDistance(_team);
+            foreach (var r in new[] { Res.Wood, Res.Gold, Res.Food })
+            {
+                if (T.Gather[r] < 3 || !haul.TryGetValue(r, out var d) || d < 6) continue;
+                if (_w.StorehouseSpot(_team, r) is not { } spot || _w.FindBuildSite(BuildingKind.Storehouse, spot) is not { } ss) continue;
+                T.Plans.Add(new BuildPlan { Id = _w.NextId(), Kind = BuildingKind.Storehouse, TileX = ss.X, TileY = ss.Y, Status = PlanStatus.Confirmed, Near = Defs.Key(r) });
+                break;
+            }
+        }
         if (hasBarracks)
         {
             T.TrainGoal[UnitKind.Spearman] = _w.Time > 900 ? -1 : 8;
