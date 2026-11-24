@@ -137,6 +137,8 @@ public partial class Hud : CanvasLayer
             _input.Text = "";
             _input.Visible = false;
             _input.ReleaseFocus();
+            // 日本語入力を切っておく(入れたままだと、地図の操作のキーが IME に吸われる)
+            DisplayServer.WindowSetImeActive(false);
             if (t.Trim() != "") TextSubmitted?.Invoke(t.Trim());
         };
         vbox.AddChild(_voiceState);
@@ -191,6 +193,7 @@ public partial class Hud : CanvasLayer
         _input.Text = "";
         _input.Visible = false;
         _input.ReleaseFocus();
+        DisplayServer.WindowSetImeActive(false);
     }
 
     private static PanelContainer Panel(Color bg)

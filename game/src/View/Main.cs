@@ -170,12 +170,13 @@ public partial class Main : Node2D
 
         // カメラのスクロール
         var move = Vector2.Zero;
-        if (!_hud.Typing)
+        if (_hud.Typing || !DisplayServer.WindowIsFocused()) _scrollKeys.Clear();
+        else
         {
-            if (Input.IsKeyPressed(Key.A) || Input.IsKeyPressed(Key.Left)) move.X -= 1;
-            if (Input.IsKeyPressed(Key.D) || Input.IsKeyPressed(Key.Right)) move.X += 1;
-            if (Input.IsKeyPressed(Key.W) || Input.IsKeyPressed(Key.Up)) move.Y -= 1;
-            if (Input.IsKeyPressed(Key.S) || Input.IsKeyPressed(Key.Down)) move.Y += 1;
+            if (Held(Key.A) || Held(Key.Left)) move.X -= 1;
+            if (Held(Key.D) || Held(Key.Right)) move.X += 1;
+            if (Held(Key.W) || Held(Key.Up)) move.Y -= 1;
+            if (Held(Key.S) || Held(Key.Down)) move.Y += 1;
         }
         move += EdgeScroll();
         if (move != Vector2.Zero) _camTween?.Kill();
@@ -373,8 +374,32 @@ public partial class Main : Node2D
         else _cc.SubmitText(text, ctx);
     }
 
+    /// <summary>
+    /// スクロールに使うキーのうち、押されているもの。Input.IsKeyPressed は使わない:
+    /// 日本語入力(IME)で文字を打つと、キーを離した合図が IME に吸われて「押されたまま」になることがあるため。
+    /// ゲームが自分で受け取った押す/離すの合図だけで判定し、文字入力の開閉やウィンドウが裏に回ったときは空にする。
+    /// </summary>
+    private readonly HashSet<Key> _scrollKeys = new();
+
+    private static bool IsScrollKey(Key k) => k is Key.A or Key.D or Key.W or Key.S or Key.Left or Key.Right or Key.Up or Key.Down;
+
+    // 両方そろったときだけ押されているとみなす(どちらかが離されたことを知っていれば止まる)
+    private bool Held(Key k) => _scrollKeys.Contains(k) && Input.IsKeyPressed(k);
+
+    public override void _Input(InputEvent e)
+    {
+        // 離す合図は、GUI が受け取った場合でも必ず拾う
+        if (e is InputEventKey { Pressed: false } k && IsScrollKey(k.Keycode)) _scrollKeys.Remove(k.Keycode);
+    }
+
+    public override void _Notification(int what)
+    {
+        if (what is (int)NotificationApplicationFocusOut or (int)NotificationWMWindowFocusOut) _scrollKeys.Clear();
+    }
+
     public override void _UnhandledInput(InputEvent e)
     {
+        if (e is InputEventKey { Pressed: true, Echo: false } sk && IsScrollKey(sk.Keycode) && !_hud.Typing) _scrollKeys.Add(sk.Keycode);
         if (_hud.Typing)
         {
             if (e is InputEventKey { Pressed: true, Keycode: Key.Escape }) _hud.CloseInput();
@@ -411,7 +436,7 @@ public partial class Main : Node2D
             case InputEventKey { Pressed: true, Echo: false } k:
                 switch (k.Keycode)
                 {
-                    case Key.Enter or Key.KpEnter: _hud.OpenInput(); break;
+                    case Key.Enter or Key.KpEnter: _scrollKeys.Clear(); _hud.OpenInput(); break;
                     case Key.Key1: _tool = Tool.Point; break;
                     case Key.Key2: _tool = Tool.Line; break;
                     case Key.Escape: _tool = Tool.Select; _selected.Clear(); break;
