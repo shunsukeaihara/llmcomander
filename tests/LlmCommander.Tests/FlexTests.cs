@@ -147,7 +147,9 @@ public class FlexTests
         var llm = new SlowOfficer();
         var cc = new CommandCenter(w, 0, llm, null, new LlmSettings());
         cc.Update(); // 担当を呼ぶ(返事は止めてある)
-        for (int i = 0; i < 200 && Volatile.Read(ref llm.Calls) == 0; i++) Thread.Sleep(5);
+        // 並列に走るほかのテストでスレッドプールが混むことがあるので、時間で待つ
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (Volatile.Read(ref llm.Calls) == 0 && DateTime.UtcNow < until) Thread.Sleep(5);
         Assert.Equal(1, llm.Calls);
         var op = w.Teams[0].FindOp("前線")!;
         // 返事が来る前にプレイヤーが作戦を変える
@@ -155,7 +157,8 @@ public class FlexTests
             {"operation": "前線", "change_summary": "", "roles": [{"role": "槍", "stance": "advance", "place": "北の丘"}]}
             """)), "北の丘へ進め", Array.Empty<int>());
         llm.Gate.Release();
-        for (int i = 0; i < 500 && op.Status == ""; i++) { Thread.Sleep(5); cc.Update(); }
+        until = DateTime.UtcNow.AddSeconds(10);
+        while (op.Status == "" && DateTime.UtcNow < until) { Thread.Sleep(5); cc.Update(); }
         Assert.Equal(Stance.Advance, op.FindRole("槍")!.Stance); // 古い判断(撤退)は捨てた
         Assert.Equal("様子見", op.Status);                      // 報告は使う
         llm.Gate.Release(5);
