@@ -105,8 +105,8 @@ public static class MapLayout
                 world.AddNode(r, new Vector2(y + MathF.Sin(a) * rr, x + MathF.Cos(a) * rr), amount);
             }
         }
-        Nodes(Res.Gold, 22, 71, 4, 800);   // 西の金鉱 / 東の金鉱
-        Nodes(Res.Food, 10, 59, 5, 300);   // 自陣の木の実
+        Nodes(Res.Gold, 22, 71, 4, 1500);   // 西の金鉱 / 東の金鉱
+        Nodes(Res.Food, 10, 59, 5, 1000);   // 自陣の木の実
         void Cluster(Res r, float x, float y, int n, float amount)
         {
             for (int i = 0; i < n; i++)
@@ -116,9 +116,9 @@ public static class MapLayout
                 world.AddNode(r, new Vector2(x + MathF.Cos(a) * rr, y + MathF.Sin(a) * rr), amount);
             }
         }
-        Cluster(Res.Gold, 27, 27, 5, 800); // 北の金鉱(対角線上なので1か所)
-        Cluster(Res.Gold, 53, 53, 5, 800); // 南の金鉱
-        Nodes(Res.Food, 30, 50, 4, 300);   // 中間の木の実
+        Cluster(Res.Gold, 27, 27, 5, 1500); // 北の金鉱(対角線上なので1か所)
+        Cluster(Res.Gold, 53, 53, 5, 1500); // 南の金鉱
+        Nodes(Res.Food, 30, 50, 4, 1000);   // 中間の木の実
 
         // 初期配置
         for (int team = 0; team < 2; team++)

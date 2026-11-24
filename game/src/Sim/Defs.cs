@@ -19,8 +19,8 @@ public static class Defs
 {
     public const float Dt = 1f / 20f;
     public const int PopCap = 100;
-    public const float Carry = 10f;
-    public const float GatherRate = 0.5f;
+    public const float Carry = 20f;
+    public const float GatherRate = 1.0f;
     public const float Sight = 7f;
 
     /// <summary>ユニットの視界(タイル)。斥候だけ広い。</summary>
